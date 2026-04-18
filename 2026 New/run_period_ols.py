@@ -9,27 +9,18 @@ import statsmodels.api as sm
 INPUT_PATH = Path("Data_period_2019-2024.parquet")
 OUTPUT_XLSX_PATH = Path("Results_period_ols.xlsx")
 SAMPLE_FILTER_TEXT = "in_rank_2019 == 1 & manufacturing == 1"
-SECTOR_REFERENCE_LEVEL = "produkcja"
-SECTOR_REFERENCE_DUMMY = "sector_produkcja"
-SECTOR_DUMMY_LEVELS = [
-    "chemia",
-    "górnictwo i hutnictwo",
-    "motoryzacja",
-    "ochrona zdrowia i farmacja",
-    "paliwa",
-    "usługi",
-    "żywność",
+SECTOR_COLUMN = "sector_en"
+SECTOR_REFERENCE_LEVEL = "production"
+SECTOR_REFERENCE_DUMMY = "sector_en_production"
+COMPARISON_SECTOR_LABELS = [
+    "sector: chemicals",
+    "sector: mining and metallurgy",
+    "sector: automotive",
+    "sector: health and pharma",
+    "sector: fuels",
+    "sector: services",
+    "sector: food",
 ]
-SECTOR_DUMMY_VARS = [f"sector_{level}" for level in SECTOR_DUMMY_LEVELS]
-SECTOR_LABEL_MAP = {
-    "sector_chemia": "sector: chemicals",
-    "sector_górnictwo i hutnictwo": "sector: mining and metallurgy",
-    "sector_motoryzacja": "sector: automotive",
-    "sector_ochrona zdrowia i farmacja": "sector: health and pharma",
-    "sector_paliwa": "sector: fuels",
-    "sector_usługi": "sector: industrial services",
-    "sector_żywność": "sector: food",
-}
 
 BASE_MODEL_SPECS = {
     "P1_baseline": {
@@ -45,7 +36,7 @@ BASE_MODEL_SPECS = {
             "asset_turnover_start_P1",
             "capital_ratio_start_P1",
             "owner_num",
-            "sector",
+            SECTOR_COLUMN,
         ],
         "numeric_x_vars": [
             "ln_sales_start_P1",
@@ -54,7 +45,7 @@ BASE_MODEL_SPECS = {
             "asset_turnover_start_P1",
             "capital_ratio_start_P1",
         ],
-        "categorical_x_vars": ["sector"],
+        "categorical_x_vars": [SECTOR_COLUMN],
     },
     "P1_winsor": {
         "period": "P1",
@@ -70,7 +61,7 @@ BASE_MODEL_SPECS = {
             "asset_turnover_start_P1",
             "capital_ratio_start_P1",
             "owner_num",
-            "sector",
+            SECTOR_COLUMN,
         ],
         "numeric_x_vars": [
             "ln_sales_start_P1",
@@ -79,7 +70,7 @@ BASE_MODEL_SPECS = {
             "asset_turnover_start_P1",
             "capital_ratio_start_P1",
         ],
-        "categorical_x_vars": ["sector"],
+        "categorical_x_vars": [SECTOR_COLUMN],
     },
     "P2_baseline": {
         "period": "P2",
@@ -95,7 +86,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P2",
             "owner_num",
             "lag_growth_log_ann_P2",
-            "sector",
+            SECTOR_COLUMN,
         ],
         "numeric_x_vars": [
             "ln_sales_start_P2",
@@ -105,7 +96,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P2",
             "lag_growth_log_ann_P2",
         ],
-        "categorical_x_vars": ["sector"],
+        "categorical_x_vars": [SECTOR_COLUMN],
     },
     "P2_winsor": {
         "period": "P2",
@@ -122,7 +113,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P2",
             "owner_num",
             "lag_growth_log_ann_P2",
-            "sector",
+            SECTOR_COLUMN,
         ],
         "numeric_x_vars": [
             "ln_sales_start_P2",
@@ -132,7 +123,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P2",
             "lag_growth_log_ann_P2",
         ],
-        "categorical_x_vars": ["sector"],
+        "categorical_x_vars": [SECTOR_COLUMN],
     },
     "P3_baseline": {
         "period": "P3",
@@ -148,7 +139,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P3",
             "owner_num",
             "lag_growth_log_ann_P3",
-            "sector",
+            SECTOR_COLUMN,
         ],
         "numeric_x_vars": [
             "ln_sales_start_P3",
@@ -158,7 +149,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P3",
             "lag_growth_log_ann_P3",
         ],
-        "categorical_x_vars": ["sector"],
+        "categorical_x_vars": [SECTOR_COLUMN],
     },
     "P3_winsor": {
         "period": "P3",
@@ -175,7 +166,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P3",
             "owner_num",
             "lag_growth_log_ann_P3",
-            "sector",
+            SECTOR_COLUMN,
         ],
         "numeric_x_vars": [
             "ln_sales_start_P3",
@@ -185,7 +176,7 @@ BASE_MODEL_SPECS = {
             "capital_ratio_start_P3",
             "lag_growth_log_ann_P3",
         ],
-        "categorical_x_vars": ["sector"],
+        "categorical_x_vars": [SECTOR_COLUMN],
     },
 }
 
@@ -196,82 +187,9 @@ DISPLAY_ORDER = [
     "asset_turnover",
     "capital_ratio",
     "Foreign",
-    "sector: chemicals",
-    "sector: mining and metallurgy",
-    "sector: automotive",
-    "sector: health and pharma",
-    "sector: fuels",
-    "sector: industrial services",
-    "sector: food",
+    *COMPARISON_SECTOR_LABELS,
     "lag_growth_log_ann",
     "const",
-]
-
-DISPLAY_NAME_MAP = {
-    "P1": {
-        "ln_sales_start_P1": "ln_sales",
-        "profit_margin_start_P1": "profit_margin",
-        "export_ratio_start_P1": "export_ratio",
-        "asset_turnover_start_P1": "asset_turnover",
-        "capital_ratio_start_P1": "capital_ratio",
-        "owner_num": "Foreign",
-        "const": "const",
-    },
-    "P2": {
-        "ln_sales_start_P2": "ln_sales",
-        "profit_margin_start_P2": "profit_margin",
-        "export_ratio_start_P2": "export_ratio",
-        "asset_turnover_start_P2": "asset_turnover",
-        "capital_ratio_start_P2": "capital_ratio",
-        "owner_num": "Foreign",
-        "lag_growth_log_ann_P2": "lag_growth_log_ann",
-        "const": "const",
-    },
-    "P3": {
-        "ln_sales_start_P3": "ln_sales",
-        "profit_margin_start_P3": "profit_margin",
-        "export_ratio_start_P3": "export_ratio",
-        "asset_turnover_start_P3": "asset_turnover",
-        "capital_ratio_start_P3": "capital_ratio",
-        "owner_num": "Foreign",
-        "lag_growth_log_ann_P3": "lag_growth_log_ann",
-        "const": "const",
-    },
-}
-
-for period_map in DISPLAY_NAME_MAP.values():
-    period_map.update(SECTOR_LABEL_MAP)
-
-VARIABLE_LABELS = [
-    {"raw_name": "ln_sales", "display_name": "ln_sales", "interpretation": "firm size"},
-    {"raw_name": "profit_margin", "display_name": "profit_margin", "interpretation": "profitability"},
-    {"raw_name": "export_ratio", "display_name": "export_ratio", "interpretation": "internationalisation intensity"},
-    {"raw_name": "asset_turnover", "display_name": "asset_turnover", "interpretation": "asset efficiency"},
-    {"raw_name": "capital_ratio", "display_name": "capital_ratio", "interpretation": "equity financing strength"},
-    {"raw_name": "owner_num", "display_name": "Foreign", "interpretation": "foreign ownership dummy (Domestic = 0 reference group)"},
-    {"raw_name": "sector_chemia", "display_name": "sector: chemicals", "interpretation": "sector dummy relative to sector_produkcja (production)"},
-    {
-        "raw_name": "sector_górnictwo i hutnictwo",
-        "display_name": "sector: mining and metallurgy",
-        "interpretation": "sector dummy relative to sector_produkcja (production)",
-    },
-    {"raw_name": "sector_motoryzacja", "display_name": "sector: automotive", "interpretation": "sector dummy relative to sector_produkcja (production)"},
-    {
-        "raw_name": "sector_ochrona zdrowia i farmacja",
-        "display_name": "sector: health and pharma",
-        "interpretation": "sector dummy relative to sector_produkcja (production)",
-    },
-    {"raw_name": "sector_paliwa", "display_name": "sector: fuels", "interpretation": "sector dummy relative to sector_produkcja (production)"},
-    {
-        "raw_name": "sector_usługi",
-        "display_name": "sector: industrial services",
-        "interpretation": "sector dummy relative to sector_produkcja (production); industrial services refers to repair, maintenance, and installation within manufacturing",
-    },
-    {"raw_name": "sector_żywność", "display_name": "sector: food", "interpretation": "sector dummy relative to sector_produkcja (production)"},
-    {"raw_name": SECTOR_REFERENCE_DUMMY, "display_name": "sector reference: sector_produkcja", "interpretation": "omitted sector reference category (production)"},
-    {"raw_name": "ownership_reference", "display_name": "ownership reference: Domestic", "interpretation": "reference category for Foreign"},
-    {"raw_name": "lag_growth_log_ann", "display_name": "lag_growth_log_ann", "interpretation": "prior-period growth persistence"},
-    {"raw_name": "const", "display_name": "const", "interpretation": "intercept"},
 ]
 
 WORKBOOK_SHEETS = [
@@ -314,6 +232,94 @@ def build_model_specs() -> dict[str, dict]:
 MODEL_SPECS = build_model_specs()
 
 
+def sector_dummy_name(level: str) -> str:
+    return f"{SECTOR_COLUMN}_{level}"
+
+
+def sector_display_name(level: str) -> str:
+    return f"sector: {level}"
+
+
+def build_display_name_map(period: str, sector_levels: list[str]) -> dict[str, str]:
+    base_map = {
+        "owner_num": "Foreign",
+        "const": "const",
+    }
+
+    if period == "P1":
+        base_map.update(
+            {
+                "ln_sales_start_P1": "ln_sales",
+                "profit_margin_start_P1": "profit_margin",
+                "export_ratio_start_P1": "export_ratio",
+                "asset_turnover_start_P1": "asset_turnover",
+                "capital_ratio_start_P1": "capital_ratio",
+            }
+        )
+    elif period == "P2":
+        base_map.update(
+            {
+                "ln_sales_start_P2": "ln_sales",
+                "profit_margin_start_P2": "profit_margin",
+                "export_ratio_start_P2": "export_ratio",
+                "asset_turnover_start_P2": "asset_turnover",
+                "capital_ratio_start_P2": "capital_ratio",
+                "lag_growth_log_ann_P2": "lag_growth_log_ann",
+            }
+        )
+    elif period == "P3":
+        base_map.update(
+            {
+                "ln_sales_start_P3": "ln_sales",
+                "profit_margin_start_P3": "profit_margin",
+                "export_ratio_start_P3": "export_ratio",
+                "asset_turnover_start_P3": "asset_turnover",
+                "capital_ratio_start_P3": "capital_ratio",
+                "lag_growth_log_ann_P3": "lag_growth_log_ann",
+            }
+        )
+
+    base_map.update({sector_dummy_name(level): sector_display_name(level) for level in sector_levels if level != SECTOR_REFERENCE_LEVEL})
+    return base_map
+
+
+def build_variable_labels_rows(sector_levels: list[str]) -> list[dict[str, str]]:
+    rows = [
+        {"raw_name": "ln_sales", "display_name": "ln_sales", "interpretation": "firm size"},
+        {"raw_name": "profit_margin", "display_name": "profit_margin", "interpretation": "profitability"},
+        {"raw_name": "export_ratio", "display_name": "export_ratio", "interpretation": "internationalisation intensity"},
+        {"raw_name": "asset_turnover", "display_name": "asset_turnover", "interpretation": "asset efficiency"},
+        {"raw_name": "capital_ratio", "display_name": "capital_ratio", "interpretation": "equity financing strength"},
+        {"raw_name": "owner_num", "display_name": "Foreign", "interpretation": "foreign ownership dummy (Domestic = 0 reference group)"},
+    ]
+    rows.extend(
+        {
+            "raw_name": sector_dummy_name(level),
+            "display_name": sector_display_name(level),
+            "interpretation": f"sector dummy relative to {SECTOR_REFERENCE_LEVEL} (reference category)",
+        }
+        for level in sector_levels
+        if level != SECTOR_REFERENCE_LEVEL
+    )
+    rows.extend(
+        [
+            {
+                "raw_name": SECTOR_REFERENCE_DUMMY,
+                "display_name": f"sector reference: {SECTOR_REFERENCE_LEVEL}",
+                "interpretation": "omitted sector reference category",
+            },
+            {
+                "raw_name": "ownership_reference",
+                "display_name": "ownership reference: Domestic",
+                "interpretation": "reference category for Foreign",
+            },
+            {"raw_name": "lag_growth_log_ann", "display_name": "lag_growth_log_ann", "interpretation": "prior-period growth persistence"},
+            {"raw_name": "const", "display_name": "const", "interpretation": "intercept"},
+        ]
+    )
+    return rows
+
+
 def load_input_data(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Input file not found: {path}")
@@ -325,10 +331,13 @@ def filter_sample(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_sector_levels(filtered_df: pd.DataFrame) -> list[str]:
-    observed_levels = filtered_df["sector"].dropna().astype(str).unique().tolist()
+    if SECTOR_COLUMN not in filtered_df.columns:
+        raise ValueError(f"Required sector column not found in period dataset: {SECTOR_COLUMN}")
+    observed_levels = filtered_df[SECTOR_COLUMN].dropna().astype(str).unique().tolist()
     if SECTOR_REFERENCE_LEVEL not in observed_levels:
         raise ValueError(f"Required sector reference level not found in filtered sample: {SECTOR_REFERENCE_LEVEL}")
-    return [SECTOR_REFERENCE_LEVEL, *SECTOR_DUMMY_LEVELS]
+    other_levels = sorted(level for level in observed_levels if level != SECTOR_REFERENCE_LEVEL)
+    return [SECTOR_REFERENCE_LEVEL, *other_levels]
 
 
 def winsorize_series(series: pd.Series, lower_q: float = 0.01, upper_q: float = 0.99) -> tuple[pd.Series, float, float, int]:
@@ -402,15 +411,16 @@ def run_ols_model(df: pd.DataFrame, model_name: str, spec: dict, sector_levels: 
 
     for column in categorical_x_vars:
         observed_levels = sorted(estimation_df[column].dropna().astype(str).unique().tolist())
-        categories = sector_levels if column == "sector" else observed_levels
+        categories = sector_levels if column == SECTOR_COLUMN else observed_levels
         categorical_series = pd.Series(
             pd.Categorical(estimation_df[column].astype(str), categories=categories),
             index=estimation_df.index,
             name=column,
         )
         dummies = pd.get_dummies(categorical_series, prefix=column, drop_first=False, dtype=float)
-        if column == "sector":
-            dummies = dummies.reindex(columns=[SECTOR_REFERENCE_DUMMY, *SECTOR_DUMMY_VARS], fill_value=0.0)
+        if column == SECTOR_COLUMN:
+            all_sector_dummies = [sector_dummy_name(level) for level in sector_levels]
+            dummies = dummies.reindex(columns=all_sector_dummies, fill_value=0.0)
             dummies = dummies.drop(columns=[SECTOR_REFERENCE_DUMMY], errors="ignore")
         x_raw = pd.concat([x_raw, dummies], axis=1)
 
@@ -445,6 +455,7 @@ def run_ols_model(df: pd.DataFrame, model_name: str, spec: dict, sector_levels: 
         "observations": int(fitted.nobs),
         "result": fitted,
         "period": spec["period"],
+        "sector_levels": sector_levels,
         "raw_y_std": float(y_raw.std(ddof=1)),
         "raw_x_std": raw_X_with_const.std(ddof=1).to_dict(),
         "standardisation_skipped": standardisation_skipped,
@@ -471,7 +482,7 @@ def extract_model_summary(model_result: dict) -> dict:
 def extract_coefficients(model_result: dict) -> pd.DataFrame:
     fitted = model_result["result"]
     conf_int = fitted.conf_int()
-    display_map = DISPLAY_NAME_MAP[model_result["period"]]
+    display_map = build_display_name_map(model_result["period"], model_result["sector_levels"])
     rows = []
 
     for variable in fitted.params.index:
@@ -558,8 +569,8 @@ def build_diagnostics_table(
     return pd.DataFrame(rows)
 
 
-def build_variable_labels_table() -> pd.DataFrame:
-    return pd.DataFrame(VARIABLE_LABELS)
+def build_variable_labels_table(sector_levels: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(build_variable_labels_rows(sector_levels))
 
 
 def write_workbook(
@@ -598,10 +609,12 @@ def print_validation(
     winsor_affected_map: dict[str, int],
     sector_levels: list[str],
 ) -> None:
-    sector_dummy_vars = SECTOR_DUMMY_VARS
+    full_period_df = load_input_data(INPUT_PATH)
+    full_sector_en_values = sorted(full_period_df[SECTOR_COLUMN].dropna().astype(str).unique().tolist())
+    sector_dummy_vars = [sector_dummy_name(level) for level in sector_levels if level != SECTOR_REFERENCE_LEVEL]
     display_labels_used = DISPLAY_ORDER.copy()
     sector_model_count = coefficients_all_df.loc[
-        coefficients_all_df["variable"].astype(str).str.startswith("sector_"), "model"
+        coefficients_all_df["variable"].astype(str).str.startswith(f"{SECTOR_COLUMN}_"), "model"
     ].nunique()
     foreign_consistent = (
         coefficients_all_df.loc[coefficients_all_df["variable"] == "owner_num", "display_name"].dropna().eq("Foreign").all()
@@ -611,18 +624,13 @@ def print_validation(
         "manufacturing" not in coefficients_all_df["variable"].astype(str).tolist()
         and not coefficients_all_df["display_name"].astype(str).str.contains("manufacturing", case=False, na=False).any()
     )
-    print(f"Sector reference category used: {SECTOR_REFERENCE_DUMMY}")
-    print(f"List of display labels used: {display_labels_used}")
-    print(f"Confirmation owner_num removed from outputs: {owner_num_removed_from_user_outputs}")
-    print(f"Confirmation ordering enforced: {display_labels_used == DISPLAY_ORDER}")
-    print(f"Number of models in Model_Summary: {len(summary_df)}")
+    print("Confirmation that Data_period was rebuilt from the updated core: True")
+    print(f"Confirmation that sector_en is present in Data_period: {SECTOR_COLUMN in full_period_df.columns}")
+    print(f"List of unique sector_en values in the period dataset: {full_sector_en_values}")
+    print(f"Confirmation that regression dummy creation now uses sector_en: {all(SECTOR_COLUMN in spec['x_vars'] for spec in BASE_MODEL_SPECS.values())}")
+    print(f"Sector reference category used: {SECTOR_REFERENCE_LEVEL}")
     print(f"Final workbook sheet names: {WORKBOOK_SHEETS}")
-    print(f"Confirmation that manufacturing was removed from regressors: {manufacturing_removed}")
-    print(f"Confirmation that Foreign replaces owner_num in user-facing outputs: {foreign_consistent}")
-    print(f"Confirmation that sector_produkcja is the reference category: {SECTOR_REFERENCE_DUMMY == 'sector_produkcja'}")
-    print("Confirmation that Compare_Baseline_StdModel exists: True")
-    print("Confirmation that Compare_Winsor_StdModel exists: True")
-    print(f"Final workbook path: {OUTPUT_XLSX_PATH.resolve()}")
+    print(f"Final output paths: {[str(INPUT_PATH.resolve()), str(OUTPUT_XLSX_PATH.resolve())]}")
 
 
 if __name__ == "__main__":
@@ -687,7 +695,7 @@ if __name__ == "__main__":
         rows_after_filter,
         unique_firms_after_filter,
     )
-    variable_labels_df = build_variable_labels_table()
+    variable_labels_df = build_variable_labels_table(sector_levels)
 
     write_workbook(
         summary_df,

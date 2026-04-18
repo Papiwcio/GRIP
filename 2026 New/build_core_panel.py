@@ -19,25 +19,44 @@ PRICE_INDEX_BY_YEAR = {
     2024: 1.434809439,
 }
 
+SECTOR_EN_MAP = {
+    "budownictwo": "construction",
+    "chemia": "chemicals",
+    "energetyka": "energy",
+    "górnictwo i hutnictwo": "mining and metallurgy",
+    "handel detaliczny": "retail trade",
+    "handel hurtowy": "wholesale trade",
+    "media, telekomunkacja, it": "media, telecommunications, and IT",
+    "motoryzacja": "automotive",
+    "ochrona zdrowia i farmacja": "health and pharma",
+    "paliwa": "fuels",
+    "produkcja": "production",
+    "transport": "transport",
+    "usługi": "services",
+    "żywność": "food",
+}
+
 KEY_COLUMNS = ["nip", "year"]
 
 STATIC_COLUMNS = [
     "company",
     "rank_2019",
     "in_rank_2019",
-    "city",
+    "pkd",
+    "pkd_description",
+    "sector",
+    "sector_en",
+    "manufacturing",
+    "owner_type",
+    "owner",
+    "owner_num",
     "gpw",
+    "city",
     "incorporation_year_krs",
     "business_start_year",
     "regon",
     "krs",
     "legal_form",
-    "pkd",
-    "pkd_description",
-    "sector",
-    "owner_type",
-    "owner",
-    "owner_num",
     "sj",
 ]
 
@@ -82,7 +101,6 @@ DERIVED_COLUMNS = [
     "has_sales",
     "has_assets",
     "has_employment",
-    "manufacturing",
 ]
 
 DROP_COLUMNS = [
@@ -97,7 +115,7 @@ CORE_COLUMNS = KEY_COLUMNS + STATIC_COLUMNS + ANNUAL_COLUMNS + DERIVED_COLUMNS
 INPUT_REQUIRED_COLUMNS = [
     column
     for column in KEY_COLUMNS + STATIC_COLUMNS + ANNUAL_COLUMNS
-    if column not in {"in_rank_2019", "owner", "owner_num"}
+    if column not in {"in_rank_2019", "owner", "owner_num", "sector_en", "manufacturing"}
 ] + DROP_COLUMNS
 
 INTEGER_COLUMNS = ["year", "rank_2019", "in_rank_2019", "regon", "krs", "pkd", "owner_type"]
@@ -119,7 +137,7 @@ FLOAT_COLUMNS = [
     "total_liabilities",
 ]
 
-STRING_COLUMNS = ["nip", "company", "city", "gpw", "incorporation_year_krs", "legal_form", "pkd_description", "sector", "sj"]
+STRING_COLUMNS = ["nip", "company", "city", "gpw", "incorporation_year_krs", "legal_form", "pkd_description", "sector", "sector_en", "sj"]
 
 
 def load_input_data(path: Path) -> pd.DataFrame:
@@ -169,8 +187,19 @@ def safe_ratio(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     return numerator.divide(denominator)
 
 
-def build_derived_variables(df: pd.DataFrame) -> pd.DataFrame:
+def create_sector_en(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df = df.copy()
+    sector_clean = df["sector"].astype("string").str.strip()
+    sector_key = sector_clean.str.lower()
+    df["sector"] = sector_clean
+    df["sector_en"] = sector_key.map(SECTOR_EN_MAP).astype("string")
+    unmatched = sorted(sector_clean.loc[sector_clean.notna() & df["sector_en"].isna()].dropna().unique().tolist())
+    return df, unmatched
+
+
+def build_derived_variables(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    df = df.copy()
+    df, unmatched_sector_values = create_sector_en(df)
 
     owner_type_string = (
         pd.to_numeric(df["owner_type"], errors="coerce")
@@ -228,7 +257,7 @@ def build_derived_variables(df: pd.DataFrame) -> pd.DataFrame:
     df["sales_real_growth_yoy"] = np.where(lag_sales_real > 0, df["sales_real"] / lag_sales_real - 1, np.nan)
     df["sales_log_growth_yoy"] = df["ln_sales"] - lag_ln_sales
 
-    return df
+    return df, unmatched_sector_values
 
 
 def select_core_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -283,46 +312,49 @@ def write_outputs(df: pd.DataFrame, parquet_path: Path, xlsx_path: Path) -> None
     df.to_excel(xlsx_path, index=False, engine="xlsxwriter")
 
 
-def build_core_panel(input_path: Path = INPUT_PATH) -> pd.DataFrame:
+def build_core_panel(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, dict]:
     df = load_input_data(input_path)
+    input_row_count = len(df)
     validate_expected_columns(df)
     df = add_rank_indicators(df)
     df = coerce_numeric_types(df)
-    df = build_derived_variables(df)
+    df, unmatched_sector_values = build_derived_variables(df)
     df = select_core_columns(df)
     df = normalize_strings(df)
     df = drop_invalid_keys(df)
     df = deduplicate_firm_year(df)
     df = sort_panel(df)
     validate_output(df)
-    return df
+    metadata = {
+        "input_row_count": input_row_count,
+        "output_row_count": len(df),
+        "unique_firms": df["nip"].nunique(),
+        "sector_preserved": "sector" in df.columns,
+        "sector_en_added": "sector_en" in df.columns,
+        "sector_values": sorted(df["sector"].dropna().astype(str).unique().tolist()),
+        "sector_en_values": sorted(df["sector_en"].dropna().astype(str).unique().tolist()),
+        "sector_en_missing_count": int(df["sector_en"].isna().sum()),
+        "unmatched_sector_values": unmatched_sector_values,
+    }
+    return df, metadata
 
 
-def print_build_summary(df: pd.DataFrame) -> None:
-    growth_columns = ["sales_growth_yoy", "sales_real_growth_yoy", "sales_log_growth_yoy"]
-    owner_counts = df.groupby("owner")["nip"].nunique().to_dict()
-    dupont_gap = df["profit_margin"] * df["asset_turnover"] * df["equity_multiplier"] - df["roe"]
+def print_build_summary(df: pd.DataFrame, metadata: dict) -> None:
     print("Core panel build complete")
-    print(f"Rows: {len(df):,}")
-    print(f"Columns: {len(df.columns)}")
-    print(f"Unique firms: {df['nip'].nunique():,}")
-    print(f"Year range: {int(df['year'].min())}-{int(df['year'].max())}")
-    print(f"Duplicate (nip, year) rows: {int(df.duplicated(subset=KEY_COLUMNS).sum())}")
-    print(f"Firms with non-missing rank_2019: {df.loc[df['rank_2019'].notna(), 'nip'].nunique():,}")
-    print(f"Rows with in_rank_2019 = 1: {int(df['in_rank_2019'].sum()):,}")
-    print(f"Manufacturing distribution: {df['manufacturing'].value_counts(dropna=False).sort_index().to_dict()}")
-    print(f"price_index min/max: {df['price_index'].min():.9f} / {df['price_index'].max():.9f}")
-    print(f"Growth variables present: {all(column in df.columns for column in growth_columns)}")
-    print(f"Foreign firms: {owner_counts.get('Foreign', 0):,}")
-    print(f"Domestic firms: {owner_counts.get('Domestic', 0):,}")
-    print(f"Dupont consistency mean: {dupont_gap.mean():.12f}")
-    print(f"Dupont consistency std: {dupont_gap.std():.12f}")
-    print("Column names:")
-    for column in df.columns:
-        print(column)
+    print(f"Input row count: {metadata['input_row_count']:,}")
+    print(f"Output row count: {metadata['output_row_count']:,}")
+    print(f"Number of unique firms: {metadata['unique_firms']:,}")
+    print(f"Confirmation that sector is preserved: {metadata['sector_preserved']}")
+    print(f"Confirmation that sector_en was added: {metadata['sector_en_added']}")
+    print(f"Unique values in sector: {metadata['sector_values']}")
+    print(f"Unique values in sector_en: {metadata['sector_en_values']}")
+    print(f"Count of missing sector_en: {metadata['sector_en_missing_count']:,}")
+    print(f"Unmatched original sector values: {metadata['unmatched_sector_values']}")
+    if metadata["unmatched_sector_values"]:
+        print("Warning: unexpected sector values were left with missing sector_en.")
 
 
 if __name__ == "__main__":
-    core_panel = build_core_panel()
+    core_panel, build_metadata = build_core_panel()
     write_outputs(core_panel, OUTPUT_PARQUET_PATH, OUTPUT_XLSX_PATH)
-    print_build_summary(core_panel)
+    print_build_summary(core_panel, build_metadata)

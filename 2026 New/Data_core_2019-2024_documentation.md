@@ -1,8 +1,10 @@
 # Dataset: Data_core_2019-2024
 Version: v1.0
-Date: 2026-04-16
+Date: 2026-04-17
 Changes:
 - Initial canonical dataset build
+- Added `sector_en` alongside raw `sector`
+- Expanded `sector_en` to cover all observed sector categories with general English translations
 
 ## Purpose
 
@@ -45,21 +47,22 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 
 - `rank_2019`
 - `in_rank_2019`
-- `city`
+- `pkd`
+- `pkd_description`
+- `sector`
+- `sector_en`
+- `manufacturing`
+- `owner_type`
+- `owner`
+- `owner_num`
 - `gpw`
+- `city`
 - `incorporation_year_krs`
 - `business_start_year`
 - `regon`
 - `krs`
 - `legal_form`
-- `pkd`
-- `pkd_description`
-- `sector`
-- `owner_type`
-- `owner`
-- `owner_num`
 - `sj`
-- `manufacturing`
 
 ### Raw financial variables
 
@@ -116,13 +119,30 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 - `has_assets`
 - `has_employment`
 
-Total columns: `57`
+Total columns: `58`
 
 ## Calculated variables and formulas
 
 ### Structural descriptors
 
 - `in_rank_2019`: `1` if `rank_2019` is non-missing, otherwise `0`.
+- `sector`: original Polish business classification label from the source data.
+- `sector_en`: general English translation of `sector` used for analytical work. It does not replace `sector`; both are kept. `sector_en` is intended to be general and reusable across broader future analyses.
+  - `budownictwo` -> `construction`
+  - `chemia` -> `chemicals`
+  - `energetyka` -> `energy`
+  - `górnictwo i hutnictwo` -> `mining and metallurgy`
+  - `handel detaliczny` -> `retail trade`
+  - `handel hurtowy` -> `wholesale trade`
+  - `media, telekomunkacja, IT` -> `media, telecommunications, and IT`
+  - `motoryzacja` -> `automotive`
+  - `ochrona zdrowia i farmacja` -> `health and pharma`
+  - `paliwa` -> `fuels`
+  - `produkcja` -> `production`
+  - `transport` -> `transport`
+  - `usługi` -> `services`
+  - `żywność` -> `food`
+  Note: whitespace is trimmed before mapping. If an unexpected sector value appears, `sector_en` remains missing and the build script prints a warning.
 - `owner`: `"Foreign"` if `owner_type` starts with `"5"`, otherwise `"Domestic"`.
 - `owner_num`: `1` if `owner = "Foreign"`, otherwise `0`.
 - `manufacturing`: `1` if the two-digit PKD section is between `10` and `33`, otherwise `0`.

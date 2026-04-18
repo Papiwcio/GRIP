@@ -13,7 +13,7 @@ The raw-coefficient tables remain the main model outputs. Standardised-variable 
 
 Because the filtered sample fixes `manufacturing == 1` for every retained observation, `manufacturing` is removed from the regressors in all models.
 The applied sample filter implies that results should be interpreted as within-manufacturing firm dynamics among firms present in the baseline ranking.
-Manufacturing is defined from PKD codes 10-33 (Section C), while `sector` is a separate business classification variable used to capture heterogeneity within the filtered manufacturing sample.
+Manufacturing is defined from PKD codes 10-33 (Section C), while `sector_en` is the analytical sector variable used to capture heterogeneity within the filtered manufacturing sample.
 
 ## Models estimated
 
@@ -56,7 +56,7 @@ Winsorised:
 - `asset_turnover_start_P1`
 - `capital_ratio_start_P1`
 - `owner_num`
-- `sector` (categorical)
+- `sector_en` (categorical)
 
 ### P2
 
@@ -67,7 +67,7 @@ Winsorised:
 - `capital_ratio_start_P2`
 - `owner_num`
 - `lag_growth_log_ann_P2`
-- `sector` (categorical)
+- `sector_en` (categorical)
 
 ### P3
 
@@ -78,13 +78,13 @@ Winsorised:
 - `capital_ratio_start_P3`
 - `owner_num`
 - `lag_growth_log_ann_P3`
-- `sector` (categorical)
+- `sector_en` (categorical)
 
 All models include an intercept.
 Ownership is displayed as `Foreign` in user-facing tables, with domestic firms as the reference group.
-Sector enters all 12 models through dummy variables with `sector_produkcja` (production) fixed as the omitted reference category.
+Sector enters all 12 models through dummy variables based on `sector_en`, with `production` fixed as the omitted reference category.
 Ownership reference: `Domestic`.
-Sector reference: `sector_produkcja`.
+Sector reference: `production`.
 
 ## Winsorisation rule
 
@@ -108,12 +108,12 @@ The comparison sheets use harmonised row labels instead of raw period-specific v
 - `sector: automotive`
 - `sector: health and pharma`
 - `sector: fuels`
-- `sector: industrial services`
+- `sector: services`
 - `sector: food`
 - `lag_growth_log_ann`
 - `const`
 
-`sector_produkcja` is the omitted sector reference and is therefore not shown in the comparison sheets.
+`production` is the omitted sector reference and is therefore not shown in the comparison sheets.
 
 ## Standardised beta reporting
 
@@ -163,10 +163,10 @@ The diagnostics sheet includes:
 - number of rows dropped due to missing values
 - exact regressors used
 
-Sector enters the regressions as a categorical control via dummy variables. The condensed comparison tables remain focused on the core harmonised covariates, while the full sector dummy coefficients are available in `Coefficients_All`.
-The sector controls are restricted to sector levels observed within the filtered manufacturing sample, with `sector_produkcja` fixed as the omitted reference category across all model variants.
+Sector enters the regressions as a categorical control via `sector_en` dummy variables. The condensed comparison tables remain focused on the core harmonised covariates, while the full sector dummy coefficients are available in `Coefficients_All`.
+The sector controls are restricted to sector levels observed within the filtered manufacturing sample, with `production` fixed as the omitted reference category across all model variants.
 
-The sector labels do not correspond to PKD sections. In particular, `sector: industrial services` refers to repair, maintenance, and installation activities within manufacturing. The sector variable captures business-type heterogeneity within manufacturing firms and should not be interpreted as distinguishing manufacturing from the services sector.
+Sector labels in reporting tables are taken directly from `sector_en`. The canonical label `services` is used in the workbook and the sector dummies capture heterogeneity within the filtered manufacturing sample.
 
 ## Notes
 

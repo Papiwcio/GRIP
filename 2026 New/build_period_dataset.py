@@ -26,6 +26,7 @@ STABLE_DESCRIPTOR_CANDIDATES = [
     "pkd",
     "pkd_description",
     "sector",
+    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
@@ -58,6 +59,7 @@ BLOCK_2_COLUMNS = [
     "pkd",
     "pkd_description",
     "sector",
+    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
@@ -78,6 +80,28 @@ BLOCK_6_COLUMNS = [
     "lag_growth_log_ann_P3",
 ]
 BLOCK_10_COLUMNS = ["has_P1_data", "has_P2_data", "has_P3_data"]
+TRAJECTORY_COLUMNS = [
+    "has_complete_trajectory",
+    "P1_sign",
+    "P2_sign",
+    "P3_sign",
+    "trajectory_3step",
+    "trajectory_group",
+    "index_2019",
+    "index_2020",
+    "index_2022",
+    "index_2024",
+]
+TRAJECTORY_GROUP_MAP = {
+    "D-D-D": "Persistent decline",
+    "D-G-G": "Recovery",
+    "D-D-G": "Recovery",
+    "G-G-G": "Consistent growth",
+    "G-D-D": "Delayed decline",
+    "D-G-D": "Unstable / reversal",
+    "G-D-G": "Unstable / reversal",
+    "G-G-D": "Unstable / reversal",
+}
 
 
 def load_input_data(path: Path) -> pd.DataFrame:
@@ -200,6 +224,33 @@ def build_lagged_growth(outcomes: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
+def build_trajectory_descriptors(outcomes: pd.DataFrame) -> pd.DataFrame:
+    output = outcomes[[KEY_COLUMN]].copy()
+    output["has_complete_trajectory"] = outcomes[BLOCK_3_COLUMNS].notna().all(axis=1).astype("Int64")
+
+    for period_name in PERIODS:
+        growth_column = f"growth_real_{period_name}"
+        sign_column = f"{period_name}_sign"
+        output[sign_column] = np.where(
+            outcomes[growth_column].notna(),
+            np.where(outcomes[growth_column] < 0, "D", "G"),
+            pd.NA,
+        )
+        output[sign_column] = pd.Series(output[sign_column], index=output.index, dtype="string")
+
+    complete_signs = output[["P1_sign", "P2_sign", "P3_sign"]].notna().all(axis=1)
+    output["trajectory_3step"] = pd.Series(pd.NA, index=output.index, dtype="string")
+    output.loc[complete_signs, "trajectory_3step"] = output.loc[complete_signs, ["P1_sign", "P2_sign", "P3_sign"]].agg("-".join, axis=1)
+    output["trajectory_group"] = output["trajectory_3step"].map(TRAJECTORY_GROUP_MAP).astype("string")
+
+    output["index_2019"] = np.where(output["has_complete_trajectory"] == 1, 100.0, np.nan)
+    output["index_2020"] = output["index_2019"] * (1 + outcomes["growth_real_P1"])
+    output["index_2022"] = output["index_2020"] * (1 + outcomes["growth_real_P2"])
+    output["index_2024"] = output["index_2022"] * (1 + outcomes["growth_real_P3"])
+
+    return output
+
+
 def final_column_order(df: pd.DataFrame) -> list[str]:
     ordered_columns = []
 
@@ -212,6 +263,7 @@ def final_column_order(df: pd.DataFrame) -> list[str]:
         )
 
     ordered_columns.extend([column for column in BLOCK_10_COLUMNS if column in df.columns])
+    ordered_columns.extend([column for column in TRAJECTORY_COLUMNS if column in df.columns])
     return ordered_columns
 
 
@@ -225,10 +277,12 @@ def build_period_dataset(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, d
     sales_real_wide = build_sales_real_wide(annual)
     outcomes, blocked_log_counts = build_period_outcomes(sales_real_wide)
     lags = build_lagged_growth(outcomes)
+    trajectory = build_trajectory_descriptors(outcomes)
 
     output = stable.merge(outcomes, on=KEY_COLUMN, how="outer", validate="one_to_one")
     output = output.merge(lags, on=KEY_COLUMN, how="outer", validate="one_to_one")
     output = output.merge(start_covariates, on=KEY_COLUMN, how="outer", validate="one_to_one")
+    output = output.merge(trajectory, on=KEY_COLUMN, how="outer", validate="one_to_one")
 
     output = output.loc[:, final_column_order(output)].sort_values(KEY_COLUMN, kind="mergesort").reset_index(drop=True)
 
@@ -271,6 +325,17 @@ def print_build_summary(df: pd.DataFrame, input_row_count: int, blocked_log_coun
     print(f"Output row count: {len(df):,}")
     print(f"Unique firms: {df[KEY_COLUMN].nunique():,}")
     print(f"One row per nip: {not df.duplicated(KEY_COLUMN).any()}")
+    print(f"sector_en present in output: {'sector_en' in df.columns}")
+    if "sector_en" in df.columns:
+        print(f"Unique sector_en values: {sorted(df['sector_en'].dropna().astype(str).unique().tolist())}")
+    print(f"Count of firms with has_complete_trajectory = 1: {int(df['has_complete_trajectory'].sum()):,}")
+    print("Unique sign values:")
+    for column in ["P1_sign", "P2_sign", "P3_sign"]:
+        print(f"{column}: {sorted(df[column].dropna().astype(str).unique().tolist())}")
+    print("trajectory_3step frequency table:")
+    print(df["trajectory_3step"].value_counts(dropna=False).to_string())
+    print("trajectory_group frequency table:")
+    print(df["trajectory_group"].value_counts(dropna=False).to_string())
     print("Availability counts:")
     for column in BLOCK_10_COLUMNS:
         print(f"{column}: {int(df[column].sum()):,}")
@@ -278,6 +343,8 @@ def print_build_summary(df: pd.DataFrame, input_row_count: int, blocked_log_coun
     print_missing_counts(df, growth_real_columns + growth_log_columns + growth_log_ann_columns)
     print("Distribution summary:")
     print_distribution_summary(df, growth_real_columns + growth_log_ann_columns)
+    print("Index summary statistics:")
+    print_distribution_summary(df, ["index_2019", "index_2020", "index_2022", "index_2024"])
     print("Non-positive sales_real values preventing log-growth:")
     for period_name in PERIODS:
         print(f"{period_name}: {blocked_log_counts[period_name]:,}")

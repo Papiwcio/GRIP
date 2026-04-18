@@ -30,6 +30,7 @@ One row per firm (`nip`).
 - `pkd`
 - `pkd_description`
 - `sector`
+- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
@@ -91,6 +92,19 @@ Each start-of-period block contains:
 - `has_P2_data`
 - `has_P3_data`
 
+### Trajectory descriptors
+
+- `has_complete_trajectory`
+- `P1_sign`
+- `P2_sign`
+- `P3_sign`
+- `trajectory_3step`
+- `trajectory_group`
+- `index_2019`
+- `index_2020`
+- `index_2022`
+- `index_2024`
+
 ## Calculated variables and formulas
 
 ### Period outcomes: real growth
@@ -139,6 +153,27 @@ No other lag structure is included.
 - `has_P2_data = 1` if `sales_real_2020` and `sales_real_2022` both exist and `sales_real_2020 > 0`, else `0`
 - `has_P3_data = 1` if `sales_real_2022` and `sales_real_2024` both exist and `sales_real_2022 > 0`, else `0`
 
+### Trajectory descriptors
+
+- `has_complete_trajectory = 1` if `growth_real_P1`, `growth_real_P2`, and `growth_real_P3` are all non-missing, else `0`.
+- `P1_sign`, `P2_sign`, `P3_sign`: `D` if the corresponding real growth is `< 0`, `G` if it is `>= 0`. If the growth value is missing, the sign is missing.
+- `trajectory_3step`: concatenated three-step sign pattern `P1_sign-P2_sign-P3_sign`. If any sign is missing, `trajectory_3step` is missing.
+- `trajectory_group`: broader descriptive grouping from `trajectory_3step`:
+  - `D-D-D` -> `Persistent decline`
+  - `D-G-G` -> `Recovery`
+  - `D-D-G` -> `Recovery`
+  - `G-G-G` -> `Consistent growth`
+  - `G-D-D` -> `Delayed decline`
+  - `D-G-D` -> `Unstable / reversal`
+  - `G-D-G` -> `Unstable / reversal`
+  - `G-G-D` -> `Unstable / reversal`
+- `index_2019 = 100`
+- `index_2020 = 100 * (1 + growth_real_P1)`
+- `index_2022 = index_2020 * (1 + growth_real_P2)`
+- `index_2024 = index_2022 * (1 + growth_real_P3)`
+
+These index variables are descriptive constructed indicators only. They are not raw observed annual sales values and are intended for descriptive interpretation and visualisation.
+
 ## Start-of-period covariate logic
 
 Covariates are always taken from the exact first year of the relevant period:
@@ -159,6 +194,7 @@ The following firm-level descriptors are collapsed to one row per firm by taking
 - `pkd`
 - `pkd_description`
 - `sector`
+- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
@@ -168,6 +204,12 @@ The following firm-level descriptors are collapsed to one row per firm by taking
 - `legal_form`
 
 If optional columns such as `gpw`, `city`, or `legal_form` are unavailable, they are skipped gracefully.
+
+## Sector variables
+
+- `sector` is the original source business classification label inherited from `Data_core_2019-2024.parquet`.
+- `sector_en` is the canonical English translation inherited from the annual core file and is the analytical sector variable used downstream.
+- If `sector` is retained in the period dataset, it is kept only for traceability; downstream modelling uses `sector_en`.
 
 ## Missing-data handling
 
@@ -179,5 +221,5 @@ If optional columns such as `gpw`, `city`, or `legal_form` are unavailable, they
 
 - the only source file is `Data_core_2019-2024.parquet`
 - the output contains exactly one row per firm
-- no trajectory categories are included
+- deterministic trajectory descriptors are included for descriptive analysis and later trajectory-based modelling
 - no regressions or model outputs are included
