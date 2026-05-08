@@ -1,187 +1,351 @@
-# Results_period_ols
+# Results_period_ols_scenarios
 
 ## Purpose
 
-`run_period_ols.py` estimates the agreed OLS models from `Data_period_2019-2024.parquet` and exports a reporting workbook for cross-period comparison.
+`run_period_ols_scenarios.py` is the current master OLS regression pipeline for the 2026 period analysis.
 
-The raw-coefficient tables remain the main model outputs. Standardised-variable models and standardised beta tables are added only as supplementary interpretation aids.
+It estimates scenario-based OLS models from `Data_period_2019-2024.parquet` and exports:
 
-## Data source
+- `Results_period_ols_scenarios.xlsx`
 
-- Input dataset: `Data_period_2019-2024.parquet`
-- Estimation sample filter: `in_rank_2019 == 1 & manufacturing == 1`
+The older single-sample workbook path is no longer the primary documented workflow. Current interpretation should use the scenario workbook.
 
-Because the filtered sample fixes `manufacturing == 1` for every retained observation, `manufacturing` is removed from the regressors in all models.
-The applied sample filter implies that results should be interpreted as within-manufacturing firm dynamics among firms present in the baseline ranking.
-Manufacturing is defined from PKD codes 10-33 (Section C), while `sector_en` is the analytical sector variable used to capture heterogeneity within the filtered manufacturing sample.
+## Input
 
-## Models estimated
+- `Data_period_2019-2024.parquet`
 
-- `P1_baseline`
-- `P1_winsor`
-- `P2_baseline`
-- `P2_winsor`
-- `P3_baseline`
-- `P3_winsor`
-- `P1_baseline_std`
-- `P1_winsor_std`
-- `P2_baseline_std`
-- `P2_winsor_std`
-- `P3_baseline_std`
-- `P3_winsor_std`
+The script applies the trajectory-completeness filter implied by `growth_mode`, then applies the scenario filter.
 
-The model specifications are identical across raw, winsorised, and standardised variants, ensuring comparability across estimation approaches. The additional `_std` models standardise the dependent variable and numeric regressors on each model's estimation sample while leaving binary regressors unstandardised.
+For nominal mode:
 
-## Dependent variables
+- `has_complete_ntrajectory == 1`
 
-Baseline:
+For real mode:
 
-- `growth_log_ann_P1`
-- `growth_log_ann_P2`
-- `growth_log_ann_P3`
+- `has_complete_rtrajectory == 1`
 
-Winsorised:
+## Scenarios
 
-- `growth_log_ann_P1_w`
-- `growth_log_ann_P2_w`
-- `growth_log_ann_P3_w`
+The current scenario definitions are:
 
-## Independent variables by period
+- `ALL`: no additional scenario filter
+- `RANK2019`: `in_rank_2019 == 1`
+- `MANUFACTURING`: `manufacturing == 1`
+- `RANK2019_MANUFACTURING`: `in_rank_2019 == 1 & manufacturing == 1`
 
-### P1
+Each scenario runs the same model grid.
 
-- `ln_sales_start_P1`
-- `profit_margin_start_P1`
-- `export_ratio_start_P1`
-- `asset_turnover_start_P1`
-- `capital_ratio_start_P1`
-- `owner_num`
-- `sector_en` (categorical)
+## Periods
 
-### P2
+Each scenario estimates models for:
 
-- `ln_sales_start_P2`
-- `profit_margin_start_P2`
-- `export_ratio_start_P2`
-- `asset_turnover_start_P2`
-- `capital_ratio_start_P2`
-- `owner_num`
-- `lag_growth_log_ann_P2`
-- `sector_en` (categorical)
+- `P1`
+- `P2`
+- `P3`
+- `FULL`
 
-### P3
+Period dependent variables are annualised log growth variables.
 
-- `ln_sales_start_P3`
-- `profit_margin_start_P3`
-- `export_ratio_start_P3`
-- `asset_turnover_start_P3`
-- `capital_ratio_start_P3`
-- `owner_num`
-- `lag_growth_log_ann_P3`
-- `sector_en` (categorical)
+`FULL` is the 2019-2024 full-period model. It uses:
 
-All models include an intercept.
-Ownership is displayed as `Foreign` in user-facing tables, with domestic firms as the reference group.
-Sector enters all 12 models through dummy variables based on `sector_en`, with `production` fixed as the omitted reference category.
-Ownership reference: `Domestic`.
-Sector reference: `production`.
+- `rgrowth_log_ann_2019_2024` when `growth_mode == "real"`
+- `ngrowth_log_ann_2019_2024` when `growth_mode == "nominal"`
 
-## Winsorisation rule
+`FULL` uses P1 starting covariates, such as `ln_sales_start_P1` and `export_ratio_start_P1`.
 
-- winsorise only the dependent variable
-- lower bound: 1st percentile
-- upper bound: 99th percentile
-- independent variables are not winsorised
+`FULL` does not include lag growth.
 
-## Harmonised comparison labels
+## Model Variants
 
-The comparison sheets use harmonised row labels instead of raw period-specific variable names:
+Each scenario-period combination runs:
+
+- `baseline`
+- `baseline_std`
+- `winsor`
+- `winsor_std`
+
+With 4 scenarios, 4 periods, and 4 variants, the expected total is 64 estimated models unless a model is skipped for a valid diagnostic reason.
+
+## Current Specification
+
+Current base regressors:
 
 - `ln_sales`
 - `profit_margin`
 - `export_ratio`
 - `asset_turnover`
 - `capital_ratio`
-- `Foreign`
-- `sector: chemicals`
-- `sector: mining and metallurgy`
-- `sector: automotive`
-- `sector: health and pharma`
-- `sector: fuels`
-- `sector: services`
-- `sector: food`
-- `lag_growth_log_ann`
-- `const`
+- `sales_per_employee`
 
-`production` is the omitted sector reference and is therefore not shown in the comparison sheets.
+The default source-column rule is:
 
-## Standardised beta reporting
+- `{base_name}_start_{period}`
 
-Standardised coefficients are reported in additional comparison sheets only. They are not used for estimation.
-Standardised-variable models (denoted by `_std`) are estimated on z-scored dependent and independent variables, whereas standardised beta coefficients are derived from raw models post-estimation.
-Standardised models allow direct comparison of effect sizes across variables, while raw models preserve economic interpretability in original units.
+For `FULL`, the regressor period is resolved to `P1`.
 
-They are computed after estimation as:
+Owner control:
 
-- `beta_std = beta_raw * std(X) / std(Y)`
+- raw variable: `owner_num`
+- displayed as: `Foreign`
 
-For winsor models, `std(Y)` uses the winsorised dependent variable.
+Categorical control:
 
-## Workbook structure
+- raw variable: `sector_en`
+- reference category: `production`
 
-`Results_period_ols.xlsx` contains:
+Interaction:
 
-- `Model_Summary`
-- `Coefficients_All`
-- `Compare_Baseline`
-- `Compare_Winsor`
-- `Compare_Baseline_StdBeta`
-- `Compare_Winsor_StdBeta`
-- `Compare_Baseline_StdModel`
-- `Compare_Winsor_StdModel`
-- `Diagnostics`
+- `export_ratio x ln_sales`
+- generated as `foreign_x_size_ratio_P1`, `foreign_x_size_ratio_P2`, `foreign_x_size_ratio_P3`, and `foreign_x_size_ratio_FULL`
+- for `FULL`, the interaction uses P1 source variables: `export_ratio_start_P1 * ln_sales_start_P1`
+
+Lag growth:
+
+- included only for configured lag periods, currently `P2` and `P3`
+- not included for `P1`
+- not included for `FULL`
+
+## Winsorisation
+
+Winsorisation applies only to the dependent variable.
+
+Current settings:
+
+- lower bound: 1st percentile
+- upper bound: 99th percentile
+
+Independent variables are not winsorised.
+
+Winsorised dependent variables are created inside the estimation workflow and are not required as input columns.
+
+## Standardisation
+
+Standardised model variants standardise numeric regressors within each model estimation sample.
+
+Under the current configuration:
+
+- `standardised_models == True`
+- `standardise_dependent == True`
+
+Categorical dummies, ownership dummy, and intercept are excluded from standardisation unless explicitly marked otherwise in the registry.
+
+## Workbook Structure
+
+`Results_period_ols_scenarios.xlsx` contains exactly:
+
+- `README`
+- `Compare_Main`
+- `Compare_Raw`
+- `Descriptive_Stats`
+- `Correlation_Long`
+- `Model_Summary_Long`
+- `AUDIT_AND_TECHNICAL_TABS`
+- `Diagnostics_Long`
+- `Dropped_Rows_Long`
+- `Coefficients_Long`
 - `Variable_Labels`
+- `Run_Log`
 
-`Model_Summary` and `Coefficients_All` now include all 12 models:
+Working tabs come first. Audit and technical tabs follow after `AUDIT_AND_TECHNICAL_TABS`.
 
-- raw models
-- winsor models
-- standardised-variable models
-- standardised-variable winsor models
+The workbook is formatted for research use:
 
-## Diagnostics additions
+- headers are bold and coloured
+- top rows are frozen
+- comparison sheets freeze the first two columns
+- filters are applied to data sheets
+- tabs are colour coded by purpose
 
-The diagnostics sheet includes:
+## Human-Facing Tabs
 
-- input row count before filtering
-- row count after filtering
-- unique firms after filtering
-- dependent variable used
-- model family
-- winsor lower and upper bounds
-- number of observations affected by winsorisation
-- number of rows dropped due to missing values
-- exact regressors used
+### README
 
-Sector enters the regressions as a categorical control via `sector_en` dummy variables. The condensed comparison tables remain focused on the core harmonised covariates, while the full sector dummy coefficients are available in `Coefficients_All`.
-The sector controls are restricted to sector levels observed within the filtered manufacturing sample, with `production` fixed as the omitted reference category across all model variants.
+Compact explanation of the analysis name, input file, output file, scenarios, periods, dependent-variable logic, model variants, winsorisation, standardisation, and significance stars.
 
-Sector labels in reporting tables are taken directly from `sector_en`. The canonical label `services` is used in the workbook and the sector dummies capture heterogeneity within the filtered manufacturing sample.
+### Compare_Main
 
-## Notes
+Reader-facing comparison table for standardised models.
 
-This remains the baseline OLS stage. It does not include:
+Columns:
 
-- interactions
-- trajectory classes
-- nonlinear models
-- additional regressors beyond the agreed specification
+- `scenario`
+- `display_name`
+- `P1_StdBaseline`
+- `P1_StdWinsor`
+- `P2_StdBaseline`
+- `P2_StdWinsor`
+- `P3_StdBaseline`
+- `P3_StdWinsor`
+- `FULL_StdBaseline`
+- `FULL_StdWinsor`
 
-Raw models remain the main economically interpretable models. Standardised-variable models and standardised beta tables are supplementary interpretation tools.
+Rows use display labels from the variable registry.
 
-Comparison tables now:
+### Compare_Raw
 
-- use a fixed harmonised variable order across all tabs
-- include `N`, `R-squared`, and `Adjusted R-squared`
+Reader-facing comparison table for raw models.
 
-The model specification is final and frozen apart from presentation-layer reporting updates.
+Columns:
+
+- `scenario`
+- `display_name`
+- `P1_Baseline`
+- `P1_Winsor`
+- `P2_Baseline`
+- `P2_Winsor`
+- `P3_Baseline`
+- `P3_Winsor`
+- `FULL_Baseline`
+- `FULL_Winsor`
+
+Rows use display labels from the variable registry.
+
+### Descriptive_Stats
+
+Long-format descriptive statistics for model variables on each exact estimation sample.
+
+Columns include:
+
+- `scenario`
+- `period`
+- `model`
+- `sample_type`
+- `raw_variable`
+- `variable_label`
+- `variable_type`
+- `N`
+- `missing`
+- `mean`
+- `sd`
+- `min`
+- `p25`
+- `median`
+- `p75`
+- `max`
+
+Sector dummies are excluded from descriptive statistics to keep the sheet readable.
+
+### Correlation_Long
+
+Long-format pairwise Pearson correlations for key numeric variables on each exact estimation sample.
+
+Columns include:
+
+- `scenario`
+- `period`
+- `model`
+- `sample_type`
+- `variable_1`
+- `variable_1_label`
+- `variable_2`
+- `variable_2_label`
+- `correlation`
+- `N`
+
+Sector dummies, categorical dummies, and interaction terms are excluded by default.
+
+### Model_Summary_Long
+
+Long model summary table. It retains scenario, period, model, model family, dependent-variable fields, sample filter, observation counts, lag inclusion, and fit statistics.
+
+It includes `dependent_variable_label` for readability while retaining the raw dependent-variable name.
+
+## Audit And Technical Tabs
+
+### AUDIT_AND_TECHNICAL_TABS
+
+Navigation separator. Tabs after this point contain technical diagnostics, dropped-row audit trails, full coefficient outputs, variable dictionaries, and run logs.
+
+### Diagnostics_Long
+
+Technical diagnostics by model.
+
+It includes raw generated dependent variables and regressors, plus label columns such as:
+
+- `dependent_variable_label`
+- `generated_regressor_labels_for_period`
+- `x_variable_labels_used`
+
+### Dropped_Rows_Long
+
+Consolidated audit trail for rows dropped from model estimation because of missing dependent, regressor, or categorical-control values.
+
+Columns include:
+
+- `scenario`
+- `model`
+- `period`
+- `model_family`
+- `winsorised`
+- `standardised_model`
+- `nip`
+- `company`
+- `dependent_variable`
+- `dependent_variable_label`
+- `missing_columns`
+- `missing_column_labels`
+- `missing_values_count`
+- `row_index`
+- `reason`
+
+### Coefficients_Long
+
+Full technical coefficient output.
+
+It retains:
+
+- `scenario`
+- `model`
+- `period`
+- `model_family`
+- `growth_mode`
+- `dependent_variable`
+- `winsorised`
+- `standardised_model`
+- `sample_filter`
+- `raw_variable`
+- `display_name`
+- `variable_type`
+- coefficient, standard error, t-statistic, p-value, and confidence interval bounds
+
+### Variable_Labels
+
+Consolidated variable dictionary generated from the internal variable registry.
+
+It includes:
+
+- `raw_name`
+- `display_name`
+- `variable_type`
+- `standardise`
+- `interpretation`
+
+Dependent variables are included for both real and nominal growth families:
+
+- `rgrowth_log_ann_P1`
+- `rgrowth_log_ann_P2`
+- `rgrowth_log_ann_P3`
+- `rgrowth_log_ann_2019_2024`
+- `ngrowth_log_ann_P1`
+- `ngrowth_log_ann_P2`
+- `ngrowth_log_ann_P3`
+- `ngrowth_log_ann_2019_2024`
+
+### Run_Log
+
+Scenario and model execution log. It records successful model estimation and skipped models, with warning messages where applicable.
+
+## Workbook Philosophy
+
+Human-facing tabs use `display_name` or `variable_label` as the main label.
+
+Raw variable names are retained in technical tabs for reproducibility.
+
+The workbook is designed so that interpretation can start from `README`, `Compare_Main`, `Compare_Raw`, `Descriptive_Stats`, and `Correlation_Long`, while auditability is preserved in the technical tabs.
+
+## Last Updated For
+
+- Script: `run_period_ols_scenarios.py`
+- Output file: `Results_period_ols_scenarios.xlsx`
+- Main change covered: scenario OLS engine with FULL-period models, consolidated comparison sheets, descriptive statistics, correlations, dropped-row audit trail, labels, and formatted workbook structure
+- Date: 2026-05-08

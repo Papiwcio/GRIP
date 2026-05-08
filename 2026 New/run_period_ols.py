@@ -1,360 +1,947 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import statsmodels.api as sm
 
 
-INPUT_PATH = Path("Data_period_2019-2024.parquet")
-OUTPUT_XLSX_PATH = Path("Results_period_ols.xlsx")
-SAMPLE_FILTER_TEXT = "in_rank_2019 == 1 & manufacturing == 1"
-SECTOR_COLUMN = "sector_en"
-SECTOR_REFERENCE_LEVEL = "production"
-SECTOR_REFERENCE_DUMMY = "sector_en_production"
-COMPARISON_SECTOR_LABELS = [
-    "sector: chemicals",
-    "sector: mining and metallurgy",
-    "sector: automotive",
-    "sector: health and pharma",
-    "sector: fuels",
-    "sector: services",
-    "sector: food",
-]
+class StandardScaler:
+    def fit_transform(self, data):
+        frame = pd.DataFrame(data).astype(float)
+        means = frame.mean(axis=0)
+        stds = frame.std(axis=0, ddof=0).replace(0, 1.0)
+        return ((frame - means) / stds).to_numpy()
 
-BASE_MODEL_SPECS = {
-    "P1_baseline": {
-        "period": "P1",
-        "dependent": "growth_log_ann_P1",
-        "winsorised": False,
-        "standardised_model": False,
-        "model_family": "raw",
-        "x_vars": [
-            "ln_sales_start_P1",
-            "profit_margin_start_P1",
-            "export_ratio_start_P1",
-            "asset_turnover_start_P1",
-            "capital_ratio_start_P1",
-            "owner_num",
-            SECTOR_COLUMN,
-        ],
-        "numeric_x_vars": [
-            "ln_sales_start_P1",
-            "profit_margin_start_P1",
-            "export_ratio_start_P1",
-            "asset_turnover_start_P1",
-            "capital_ratio_start_P1",
-        ],
-        "categorical_x_vars": [SECTOR_COLUMN],
+
+DEFAULT_REGRESSOR_RULES = {
+    "column_pattern": "{base_name}_start_{period}",
+    "standardise": True,
+}
+
+REGRESSOR_METADATA = {
+    "ln_sales": {
+        "interpretation": "firm size",
     },
-    "P1_winsor": {
-        "period": "P1",
-        "dependent": "growth_log_ann_P1_w",
-        "source_dependent": "growth_log_ann_P1",
-        "winsorised": True,
-        "standardised_model": False,
-        "model_family": "raw_winsor",
-        "x_vars": [
-            "ln_sales_start_P1",
-            "profit_margin_start_P1",
-            "export_ratio_start_P1",
-            "asset_turnover_start_P1",
-            "capital_ratio_start_P1",
-            "owner_num",
-            SECTOR_COLUMN,
-        ],
-        "numeric_x_vars": [
-            "ln_sales_start_P1",
-            "profit_margin_start_P1",
-            "export_ratio_start_P1",
-            "asset_turnover_start_P1",
-            "capital_ratio_start_P1",
-        ],
-        "categorical_x_vars": [SECTOR_COLUMN],
+    "profit_margin": {
+        "interpretation": "profitability",
     },
-    "P2_baseline": {
-        "period": "P2",
-        "dependent": "growth_log_ann_P2",
-        "winsorised": False,
-        "standardised_model": False,
-        "model_family": "raw",
-        "x_vars": [
-            "ln_sales_start_P2",
-            "profit_margin_start_P2",
-            "export_ratio_start_P2",
-            "asset_turnover_start_P2",
-            "capital_ratio_start_P2",
-            "owner_num",
-            "lag_growth_log_ann_P2",
-            SECTOR_COLUMN,
-        ],
-        "numeric_x_vars": [
-            "ln_sales_start_P2",
-            "profit_margin_start_P2",
-            "export_ratio_start_P2",
-            "asset_turnover_start_P2",
-            "capital_ratio_start_P2",
-            "lag_growth_log_ann_P2",
-        ],
-        "categorical_x_vars": [SECTOR_COLUMN],
+    "export_ratio": {
+        "interpretation": "internationalisation intensity",
     },
-    "P2_winsor": {
-        "period": "P2",
-        "dependent": "growth_log_ann_P2_w",
-        "source_dependent": "growth_log_ann_P2",
-        "winsorised": True,
-        "standardised_model": False,
-        "model_family": "raw_winsor",
-        "x_vars": [
-            "ln_sales_start_P2",
-            "profit_margin_start_P2",
-            "export_ratio_start_P2",
-            "asset_turnover_start_P2",
-            "capital_ratio_start_P2",
-            "owner_num",
-            "lag_growth_log_ann_P2",
-            SECTOR_COLUMN,
-        ],
-        "numeric_x_vars": [
-            "ln_sales_start_P2",
-            "profit_margin_start_P2",
-            "export_ratio_start_P2",
-            "asset_turnover_start_P2",
-            "capital_ratio_start_P2",
-            "lag_growth_log_ann_P2",
-        ],
-        "categorical_x_vars": [SECTOR_COLUMN],
-    },
-    "P3_baseline": {
-        "period": "P3",
-        "dependent": "growth_log_ann_P3",
-        "winsorised": False,
-        "standardised_model": False,
-        "model_family": "raw",
-        "x_vars": [
-            "ln_sales_start_P3",
-            "profit_margin_start_P3",
-            "export_ratio_start_P3",
-            "asset_turnover_start_P3",
-            "capital_ratio_start_P3",
-            "owner_num",
-            "lag_growth_log_ann_P3",
-            SECTOR_COLUMN,
-        ],
-        "numeric_x_vars": [
-            "ln_sales_start_P3",
-            "profit_margin_start_P3",
-            "export_ratio_start_P3",
-            "asset_turnover_start_P3",
-            "capital_ratio_start_P3",
-            "lag_growth_log_ann_P3",
-        ],
-        "categorical_x_vars": [SECTOR_COLUMN],
-    },
-    "P3_winsor": {
-        "period": "P3",
-        "dependent": "growth_log_ann_P3_w",
-        "source_dependent": "growth_log_ann_P3",
-        "winsorised": True,
-        "standardised_model": False,
-        "model_family": "raw_winsor",
-        "x_vars": [
-            "ln_sales_start_P3",
-            "profit_margin_start_P3",
-            "export_ratio_start_P3",
-            "asset_turnover_start_P3",
-            "capital_ratio_start_P3",
-            "owner_num",
-            "lag_growth_log_ann_P3",
-            SECTOR_COLUMN,
-        ],
-        "numeric_x_vars": [
-            "ln_sales_start_P3",
-            "profit_margin_start_P3",
-            "export_ratio_start_P3",
-            "asset_turnover_start_P3",
-            "capital_ratio_start_P3",
-            "lag_growth_log_ann_P3",
-        ],
-        "categorical_x_vars": [SECTOR_COLUMN],
+
+    "capital_ratio": {
+        "interpretation": "equity financing strength",
     },
 }
 
-DISPLAY_ORDER = [
-    "ln_sales",
-    "profit_margin",
-    "export_ratio",
-    "asset_turnover",
-    "capital_ratio",
-    "Foreign",
-    *COMPARISON_SECTOR_LABELS,
-    "lag_growth_log_ann",
-    "const",
-]
+CATEGORICAL_METADATA = {
+    "sector_en": {
+        "reference": "production",
+        "display_prefix": "sector: ",
+        "interpretation_template": "sector dummy relative to production reference category",
+    }
+}
 
-WORKBOOK_SHEETS = [
+OWNER_METADATA = {
+    "owner_num": {
+        "display_name": "Foreign",
+        "interpretation": "foreign ownership dummy; Domestic = 0 reference group",
+        "standardise": False,
+    }
+}
+
+LAG_GROWTH_METADATA = {
+    "display_name": "lag_growth_log_ann",
+    "interpretation": "prior-period growth persistence",
+    "standardise": True,
+}
+
+INTERACTION_METADATA = {
+    "foreign_x_size_ratio": {
+        "variables": ["export_ratio","ln_sales"],
+        "display_name": "export_ratio × ln_sales",
+        "interpretation": "interaction between export intensity and company size",
+        "standardise": True,
+        "include": False,
+    }
+}
+
+# Researcher control panel
+#
+# To add a standard numeric regressor:
+# - add only its name to CONFIG["base_regressors"], for example "roa"
+# The default column rule then creates roa_start_P1, roa_start_P2, roa_start_P3 automatically.
+#
+# Optional numeric labels, interpretations, standardisation rules, or column-pattern
+# overrides go in REGRESSOR_METADATA.
+#
+# Categorical controls are listed by column name in CONFIG["categorical_controls"].
+# Their reference categories and labels must be defined in CATEGORICAL_METADATA.
+#
+# Ownership is controlled by include_owner and owner_column.
+# Owner labels and standardisation rules go in OWNER_METADATA.
+#
+# Lag growth is controlled by include_lag_growth and lag_growth_periods.
+# Lag-growth labels and standardisation rules go in LAG_GROWTH_METADATA.
+#
+# Interactions are optional and live only in INTERACTION_METADATA. Set
+# include=True to activate an interaction, include=False to ignore it, or use
+# INTERACTION_METADATA = {} for no interactions. Example: Foreign x
+# export_ratio uses variables ["owner_num", "export_ratio"] and is generated
+# automatically by period. Categorical interactions are not supported yet.
+#
+# To switch real vs nominal growth:
+# - set growth_mode to "real" or "nominal"
+# The dependent variables and lag growth controls are generated from this setting.
+#
+# To change the sample:
+# - edit base_sample_filter using pandas query syntax
+# The complete-growth requirement is added automatically from growth_mode.
+CONFIG = {
+    "analysis_name": "period_ols_main",
+    "input_file": "Data_period_2019-2024.parquet",
+    "output_file": "Results_period_ols.xlsx",
+    "sample_name": "Rank2019",
+    "base_sample_filter": "in_rank_2019 == 1",  #and manufacturing == 1
+    "growth_mode": "nominal",  # "real" or "nominal"
+    "periods": ["P1", "P2", "P3", "FULL"],
+    "base_regressors": [
+        "ln_sales",
+        "profit_margin",
+        "export_ratio",
+        "capital_ratio",
+    ],
+    "include_owner": True,
+    "owner_column": "owner_num",
+    "include_lag_growth": True,
+    "lag_growth_periods": ["P2", "P3"],
+    "categorical_controls": [
+        "sector_en",
+    ],
+    "winsorise_dependent": True,
+    "winsor_lower": 0.01,
+    "winsor_upper": 0.99,
+    "standardised_models": True,
+    "standardise_dependent": True,
+    "covariance_type": "nonrobust",
+    "model_variants": [
+        {"suffix": "baseline", "model_family": "raw", "winsorised": False, "standardised_model": False},
+        {"suffix": "baseline_std", "model_family": "std", "winsorised": False, "standardised_model": True},
+        {"suffix": "winsor", "model_family": "raw_winsor", "winsorised": True, "standardised_model": False},
+        {"suffix": "winsor_std", "model_family": "std_winsor", "winsorised": True, "standardised_model": True},
+    ],
+}
+
+
+OUTPUT_SHEETS = [
     "Model_Summary",
+    "Compare_Main",
+    "Compare_Raw",
     "Coefficients_All",
-    "Compare_Baseline",
-    "Compare_Winsor",
-    "Compare_Baseline_StdBeta",
-    "Compare_Winsor_StdBeta",
-    "Compare_Baseline_StdModel",
-    "Compare_Winsor_StdModel",
     "Diagnostics",
+    "Dropped_Rows",
     "Variable_Labels",
 ]
 
-COMPARISON_SHEETS = [
-    "Compare_Baseline",
-    "Compare_Winsor",
-    "Compare_Baseline_StdBeta",
-    "Compare_Winsor_StdBeta",
-    "Compare_Baseline_StdModel",
-    "Compare_Winsor_StdModel",
+COMPARISON_VARIANT_DISPLAY = {
+    "baseline": "Baseline",
+    "winsor": "Winsor",
+    "baseline_std": "StdBaseline",
+    "winsor_std": "StdWinsor",
+}
+
+COMPARISON_VARIANT_ORDER = ["baseline", "winsor", "baseline_std", "winsor_std"]
+COMPARE_MAIN_VARIANTS = ["baseline_std", "winsor_std"]
+COMPARE_RAW_VARIANTS = ["baseline", "winsor"]
+
+SUMMARY_ROWS = ["N", "R-squared", "Adjusted R-squared"]
+
+COEFFICIENT_OUTPUT_COLUMNS = [
+    "model",
+    "period",
+    "model_family",
+    "growth_mode",
+    "dependent_variable",
+    "winsorised",
+    "standardised_model",
+    "sample_filter",
+    "raw_variable",
+    "display_name",
+    "variable_type",
+    "coefficient",
+    "std error",
+    "t-stat",
+    "p-value",
+    "CI lower",
+    "CI upper",
 ]
 
 
-def build_model_specs() -> dict[str, dict]:
-    specs = {}
-    for model_name, spec in BASE_MODEL_SPECS.items():
-        specs[model_name] = spec.copy()
-
-        std_name = f"{model_name}_std"
-        std_spec = spec.copy()
-        std_spec["standardised_model"] = True
-        std_spec["model_family"] = "std_winsor" if spec["winsorised"] else "std"
-        specs[std_name] = std_spec
-
-    return specs
+def get_growth_prefix(config: dict[str, Any]) -> str:
+    if config["growth_mode"] == "real":
+        return "r"
+    if config["growth_mode"] == "nominal":
+        return "n"
+    raise ValueError("CONFIG['growth_mode'] must be 'real' or 'nominal'.")
 
 
-MODEL_SPECS = build_model_specs()
+def growth_col(config: dict[str, Any], period: str) -> str:
+    if period == "FULL":
+        return full_period_growth_col(config)
+    return f"{get_growth_prefix(config)}growth_log_ann_{period}"
 
 
-def sector_dummy_name(level: str) -> str:
-    return f"{SECTOR_COLUMN}_{level}"
+def full_period_growth_col(config: dict[str, Any]) -> str:
+    if config["growth_mode"] == "real":
+        return "rgrowth_log_ann_2019_2024"
+    if config["growth_mode"] == "nominal":
+        return "ngrowth_log_ann_2019_2024"
+    raise ValueError("CONFIG['growth_mode'] must be 'real' or 'nominal'.")
 
 
-def sector_display_name(level: str) -> str:
-    return f"sector: {level}"
+def lag_growth_col(config: dict[str, Any], period: str) -> str:
+    return f"lag_{get_growth_prefix(config)}growth_log_ann_{period}"
 
 
-def build_display_name_map(period: str, sector_levels: list[str]) -> dict[str, str]:
-    base_map = {
-        "owner_num": "Foreign",
-        "const": "const",
+def get_regressor_period_for_model(period: str) -> str:
+    return "P1" if period == "FULL" else period
+
+
+def trajectory_col(config: dict[str, Any]) -> str:
+    return f"has_complete_{get_growth_prefix(config)}trajectory"
+
+
+def get_sample_filter(config: dict[str, Any]) -> str:
+    return f"{trajectory_col(config)} == 1 and {config['base_sample_filter']}"
+
+
+def validate_user_config(config: dict[str, Any]) -> None:
+    required_keys = {
+        "analysis_name",
+        "input_file",
+        "output_file",
+        "sample_name",
+        "base_sample_filter",
+        "growth_mode",
+        "periods",
+        "base_regressors",
+        "include_owner",
+        "owner_column",
+        "include_lag_growth",
+        "lag_growth_periods",
+        "categorical_controls",
+        "winsorise_dependent",
+        "winsor_lower",
+        "winsor_upper",
+        "standardised_models",
+        "standardise_dependent",
+        "covariance_type",
+        "model_variants",
+    }
+    missing = sorted(required_keys.difference(config))
+    if missing:
+        raise ValueError(f"CONFIG is missing required keys: {missing}. Add them to the researcher control panel.")
+
+    old_keys = {
+        "models",
+        "owner_variable",
+        "lag_growth",
+        "variable_display_map",
+        "variable_label_interpretations",
+        "variable_label_base_keys",
+        "comparison_row_order",
+        "interaction_terms",
+    }
+    present_old_keys = sorted(old_keys.intersection(config))
+    if present_old_keys:
+        raise ValueError(
+            "CONFIG contains old technical keys that are now generated automatically: "
+            f"{present_old_keys}. Remove them. Use base_regressors, categorical_controls, owner_column, "
+            "and the metadata dictionaries instead."
+        )
+
+    if not isinstance(config["base_regressors"], list) or not config["base_regressors"]:
+        raise ValueError("CONFIG['base_regressors'] must be a non-empty list of variable-name strings.")
+    non_string_regressors = [item for item in config["base_regressors"] if not isinstance(item, str)]
+    if non_string_regressors:
+        raise ValueError(
+            "CONFIG['base_regressors'] must contain only strings. "
+            f"Invalid entries: {non_string_regressors}. Put labels or special rules in REGRESSOR_METADATA."
+        )
+
+    if not isinstance(config["categorical_controls"], list):
+        raise ValueError("CONFIG['categorical_controls'] must be a list of categorical column-name strings.")
+    non_string_categoricals = [item for item in config["categorical_controls"] if not isinstance(item, str)]
+    if non_string_categoricals:
+        raise ValueError(
+            "CONFIG['categorical_controls'] must contain only strings. "
+            f"Invalid entries: {non_string_categoricals}. Put reference categories and labels in CATEGORICAL_METADATA."
+        )
+
+    missing_categorical_metadata = [column for column in config["categorical_controls"] if column not in CATEGORICAL_METADATA]
+    if missing_categorical_metadata:
+        raise ValueError(
+            "Every categorical control needs reference-category metadata. "
+            f"Missing CATEGORICAL_METADATA entries for: {missing_categorical_metadata}."
+        )
+
+    if config["include_owner"]:
+        owner_column = config["owner_column"]
+        if not isinstance(owner_column, str) or not owner_column:
+            raise ValueError("CONFIG['owner_column'] must be a non-empty string when include_owner is True.")
+        if owner_column not in OWNER_METADATA:
+            raise ValueError(
+                f"CONFIG['owner_column'] is {owner_column!r}, but OWNER_METADATA has no entry for it. "
+                "Add OWNER_METADATA for this owner column or change CONFIG['owner_column']."
+            )
+
+    validate_interaction_metadata(config)
+
+
+def validate_interaction_metadata(config: dict[str, Any]) -> None:
+    base_regressors = set(config["base_regressors"])
+    categorical_controls = set(config["categorical_controls"])
+    owner_column = config["owner_column"]
+
+    active_required_keys = {"variables", "display_name", "interpretation", "standardise", "include"}
+    allowed_keys = set(active_required_keys)
+    for name, interaction in INTERACTION_METADATA.items():
+        if not isinstance(interaction, dict):
+            raise ValueError(f"INTERACTION_METADATA[{name!r}] must be a dictionary.")
+        unknown_keys = sorted(set(interaction).difference(allowed_keys))
+        if unknown_keys:
+            raise ValueError(
+                f"INTERACTION_METADATA[{name!r}] contains unsupported keys {unknown_keys}. "
+                f"Allowed keys are {sorted(allowed_keys)}."
+            )
+        if "include" not in interaction:
+            raise ValueError(f"INTERACTION_METADATA[{name!r}] must explicitly set include to True or False.")
+        if not isinstance(interaction["include"], bool):
+            raise ValueError(f"INTERACTION_METADATA[{name!r}]['include'] must be True or False.")
+        if not interaction["include"]:
+            continue
+
+        missing_keys = sorted(active_required_keys.difference(interaction))
+        if missing_keys:
+            raise ValueError(f"Active INTERACTION_METADATA[{name!r}] is missing required keys: {missing_keys}.")
+
+        variables = interaction["variables"]
+        if not isinstance(variables, list) or len(variables) != 2 or not all(isinstance(variable, str) for variable in variables):
+            raise ValueError(f"INTERACTION_METADATA[{name!r}]['variables'] must contain exactly two variable-name strings.")
+
+        for variable in variables:
+            if variable in categorical_controls:
+                raise ValueError("Categorical interactions are not supported yet. Please use numeric or dummy variables only.")
+            if variable in base_regressors or variable == owner_column:
+                continue
+            raise ValueError(
+                f"Interaction {name!r} uses unknown variable {variable!r}. "
+                "Use a CONFIG['base_regressors'] name or CONFIG['owner_column']. "
+                "Categorical and lag-growth interactions are not supported yet."
+            )
+
+
+def get_active_interactions() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": name,
+            "variables": metadata["variables"],
+            "display_name": metadata["display_name"],
+            "interpretation": metadata["interpretation"],
+            "standardise": metadata["standardise"],
+        }
+        for name, metadata in INTERACTION_METADATA.items()
+        if metadata.get("include") is True
+    ]
+
+
+def normalise_base_regressors(config: dict[str, Any]) -> list[dict[str, Any]]:
+    regressors = []
+    for base_name in config["base_regressors"]:
+        metadata = REGRESSOR_METADATA.get(base_name, {})
+        allowed_keys = {"display_name", "interpretation", "standardise", "column_pattern"}
+        unknown_keys = sorted(set(metadata).difference(allowed_keys))
+        if unknown_keys:
+            raise ValueError(
+                f"REGRESSOR_METADATA[{base_name!r}] contains unsupported keys {unknown_keys}. "
+                f"Allowed keys are {sorted(allowed_keys)}."
+            )
+
+        regressors.append(
+            {
+                "base_name": base_name,
+                "column_pattern": metadata.get("column_pattern", DEFAULT_REGRESSOR_RULES["column_pattern"]),
+                "display_name": metadata.get("display_name", base_name),
+                "interpretation": metadata.get("interpretation", "no interpretation provided"),
+                "standardise": metadata.get("standardise", DEFAULT_REGRESSOR_RULES["standardise"]),
+            }
+        )
+    return regressors
+
+
+def normalise_categorical_controls(config: dict[str, Any]) -> list[dict[str, Any]]:
+    controls = []
+    required_keys = {"reference", "display_prefix", "interpretation_template"}
+    allowed_keys = set(required_keys)
+    for column in config["categorical_controls"]:
+        if column not in CATEGORICAL_METADATA:
+            raise ValueError(
+                f"Categorical control {column!r} is missing from CATEGORICAL_METADATA. "
+                "Add reference, display_prefix, and interpretation_template metadata for this categorical variable."
+            )
+        metadata = CATEGORICAL_METADATA[column]
+        missing_keys = sorted(required_keys.difference(metadata))
+        if missing_keys:
+            raise ValueError(f"CATEGORICAL_METADATA[{column!r}] is missing required keys: {missing_keys}.")
+        unknown_keys = sorted(set(metadata).difference(allowed_keys))
+        if unknown_keys:
+            raise ValueError(
+                f"CATEGORICAL_METADATA[{column!r}] contains unsupported keys {unknown_keys}. "
+                f"Allowed keys are {sorted(allowed_keys)}."
+            )
+        controls.append(
+            {
+                "column": column,
+                "reference": metadata["reference"],
+                "display_prefix": metadata["display_prefix"],
+                "interpretation_template": metadata["interpretation_template"],
+            }
+        )
+    return controls
+
+
+def normalise_owner_variable(config: dict[str, Any]) -> dict[str, Any]:
+    owner_column = config["owner_column"]
+    if owner_column not in OWNER_METADATA:
+        raise ValueError(
+            f"OWNER_METADATA is missing an entry for CONFIG['owner_column'] = {owner_column!r}. "
+            "Add display_name, interpretation, and standardise to OWNER_METADATA."
+        )
+
+    metadata = OWNER_METADATA[owner_column]
+    required_keys = {"display_name", "interpretation", "standardise"}
+    missing_keys = sorted(required_keys.difference(metadata))
+    if missing_keys:
+        raise ValueError(f"OWNER_METADATA[{owner_column!r}] is missing required keys: {missing_keys}.")
+    unknown_keys = sorted(set(metadata).difference(required_keys))
+    if unknown_keys:
+        raise ValueError(
+            f"OWNER_METADATA[{owner_column!r}] contains unsupported keys {unknown_keys}. "
+            f"Allowed keys are {sorted(required_keys)}."
+        )
+    return {
+        "column": owner_column,
+        "display_name": metadata["display_name"],
+        "interpretation": metadata["interpretation"],
+        "standardise": metadata["standardise"],
     }
 
-    if period == "P1":
-        base_map.update(
-            {
-                "ln_sales_start_P1": "ln_sales",
-                "profit_margin_start_P1": "profit_margin",
-                "export_ratio_start_P1": "export_ratio",
-                "asset_turnover_start_P1": "asset_turnover",
-                "capital_ratio_start_P1": "capital_ratio",
-            }
-        )
-    elif period == "P2":
-        base_map.update(
-            {
-                "ln_sales_start_P2": "ln_sales",
-                "profit_margin_start_P2": "profit_margin",
-                "export_ratio_start_P2": "export_ratio",
-                "asset_turnover_start_P2": "asset_turnover",
-                "capital_ratio_start_P2": "capital_ratio",
-                "lag_growth_log_ann_P2": "lag_growth_log_ann",
-            }
-        )
-    elif period == "P3":
-        base_map.update(
-            {
-                "ln_sales_start_P3": "ln_sales",
-                "profit_margin_start_P3": "profit_margin",
-                "export_ratio_start_P3": "export_ratio",
-                "asset_turnover_start_P3": "asset_turnover",
-                "capital_ratio_start_P3": "capital_ratio",
-                "lag_growth_log_ann_P3": "lag_growth_log_ann",
-            }
-        )
 
-    base_map.update({sector_dummy_name(level): sector_display_name(level) for level in sector_levels if level != SECTOR_REFERENCE_LEVEL})
-    return base_map
+def normalise_lag_growth(config: dict[str, Any]) -> dict[str, Any]:
+    required_keys = {"display_name", "interpretation", "standardise"}
+    missing_keys = sorted(required_keys.difference(LAG_GROWTH_METADATA))
+    if missing_keys:
+        raise ValueError(f"LAG_GROWTH_METADATA is missing required keys: {missing_keys}.")
+    unknown_keys = sorted(set(LAG_GROWTH_METADATA).difference(required_keys))
+    if unknown_keys:
+        raise ValueError(
+            f"LAG_GROWTH_METADATA contains unsupported keys {unknown_keys}. "
+            f"Allowed keys are {sorted(required_keys)}."
+        )
+    return {
+        "display_name": LAG_GROWTH_METADATA["display_name"],
+        "interpretation": LAG_GROWTH_METADATA["interpretation"],
+        "standardise": LAG_GROWTH_METADATA["standardise"],
+    }
 
 
-def build_variable_labels_rows(sector_levels: list[str]) -> list[dict[str, str]]:
-    rows = [
-        {"raw_name": "ln_sales", "display_name": "ln_sales", "interpretation": "firm size"},
-        {"raw_name": "profit_margin", "display_name": "profit_margin", "interpretation": "profitability"},
-        {"raw_name": "export_ratio", "display_name": "export_ratio", "interpretation": "internationalisation intensity"},
-        {"raw_name": "asset_turnover", "display_name": "asset_turnover", "interpretation": "asset efficiency"},
-        {"raw_name": "capital_ratio", "display_name": "capital_ratio", "interpretation": "equity financing strength"},
-        {"raw_name": "owner_num", "display_name": "Foreign", "interpretation": "foreign ownership dummy (Domestic = 0 reference group)"},
-    ]
-    rows.extend(
-        {
-            "raw_name": sector_dummy_name(level),
-            "display_name": sector_display_name(level),
-            "interpretation": f"sector dummy relative to {SECTOR_REFERENCE_LEVEL} (reference category)",
+def normalise_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalised = dict(config)
+    normalised["base_regressors"] = normalise_base_regressors(config)
+    normalised["categorical_controls"] = normalise_categorical_controls(config)
+    normalised["owner_variable"] = normalise_owner_variable(config) if config["include_owner"] else {
+        "column": config["owner_column"],
+        "display_name": config["owner_column"],
+        "interpretation": "owner variable excluded from current configuration",
+        "standardise": False,
+    }
+    normalised["lag_growth"] = normalise_lag_growth(config)
+    return normalised
+
+
+def validate_config(config: dict[str, Any]) -> None:
+    required_keys = {
+        "analysis_name",
+        "input_file",
+        "output_file",
+        "sample_name",
+        "base_sample_filter",
+        "growth_mode",
+        "periods",
+        "base_regressors",
+        "include_owner",
+        "owner_variable",
+        "include_lag_growth",
+        "lag_growth_periods",
+        "lag_growth",
+        "categorical_controls",
+        "winsorise_dependent",
+        "winsor_lower",
+        "winsor_upper",
+        "standardised_models",
+        "standardise_dependent",
+        "covariance_type",
+        "model_variants",
+    }
+    missing = sorted(required_keys.difference(config))
+    if missing:
+        raise ValueError(f"CONFIG is missing required keys: {missing}. Add them to the researcher control panel.")
+
+    removed_user_keys = {
+        "models",
+        "variable_display_map",
+        "variable_label_interpretations",
+        "variable_label_base_keys",
+        "comparison_row_order",
+    }
+    present_removed_keys = sorted(removed_user_keys.intersection(config))
+    if present_removed_keys:
+        raise ValueError(
+            "CONFIG contains old technical keys that are now generated automatically: "
+            f"{present_removed_keys}. Remove these keys and edit base_regressors instead."
+        )
+
+    if config["growth_mode"] not in {"real", "nominal"}:
+        raise ValueError("CONFIG['growth_mode'] must be either 'real' or 'nominal'.")
+
+    if not isinstance(config["periods"], list) or not config["periods"]:
+        raise ValueError("CONFIG['periods'] must be a non-empty list such as ['P1', 'P2', 'P3'].")
+    if len(set(config["periods"])) != len(config["periods"]):
+        raise ValueError("CONFIG['periods'] contains duplicates. Each period should appear once.")
+
+    if not isinstance(config["base_sample_filter"], str) or not config["base_sample_filter"].strip():
+        raise ValueError("CONFIG['base_sample_filter'] must be a non-empty pandas query string.")
+
+    if not isinstance(config["base_regressors"], list) or not config["base_regressors"]:
+        raise ValueError("CONFIG['base_regressors'] must be a non-empty list of variable definitions.")
+
+    required_regressor_keys = {"base_name", "column_pattern", "display_name", "interpretation", "standardise"}
+    seen_base_names = set()
+    seen_display_names = {}
+    for i, regressor in enumerate(config["base_regressors"], start=1):
+        missing_regressor_keys = sorted(required_regressor_keys.difference(regressor))
+        if missing_regressor_keys:
+            raise ValueError(f"base_regressors item {i} is missing keys: {missing_regressor_keys}.")
+        if regressor["base_name"] in seen_base_names:
+            raise ValueError(f"Duplicate base_regressors base_name {regressor['base_name']!r}.")
+        seen_base_names.add(regressor["base_name"])
+        display_name = regressor["display_name"]
+        if display_name in seen_display_names:
+            raise ValueError(
+                f"Duplicate base_regressors display_name {display_name!r}. "
+                f"It is used by both {seen_display_names[display_name]!r} and {regressor['base_name']!r}. "
+                "Change one display_name so comparison tables have unique row labels."
+            )
+        seen_display_names[display_name] = regressor["base_name"]
+        try:
+            regressor["column_pattern"].format(base_name=regressor["base_name"], period=config["periods"][0])
+        except KeyError as exc:
+            raise ValueError(
+                "Each base_regressors column_pattern may only use {base_name} and {period}. "
+                f"Problem in {regressor['base_name']!r}: missing placeholder {exc}."
+            ) from exc
+
+    owner_keys = {"column", "display_name", "interpretation", "standardise"}
+    owner_missing = sorted(owner_keys.difference(config["owner_variable"]))
+    if owner_missing:
+        raise ValueError(f"CONFIG['owner_variable'] is missing keys: {owner_missing}.")
+    if config["include_owner"] and config["owner_variable"]["display_name"] in seen_display_names:
+        raise ValueError(
+            f"owner_variable display_name {config['owner_variable']['display_name']!r} duplicates a base_regressors label. "
+            "Change owner_variable['display_name'] or the base regressor display_name."
+        )
+
+    lag_growth_keys = {"display_name", "interpretation", "standardise"}
+    lag_missing = sorted(lag_growth_keys.difference(config["lag_growth"]))
+    if lag_missing:
+        raise ValueError(f"CONFIG['lag_growth'] is missing keys: {lag_missing}.")
+    if config["include_lag_growth"] and config["lag_growth"]["display_name"] in seen_display_names:
+        raise ValueError(
+            f"lag_growth display_name {config['lag_growth']['display_name']!r} duplicates a base_regressors label. "
+            "Change lag_growth['display_name'] or the base regressor display_name."
+        )
+
+    invalid_lag_periods = sorted(set(config["lag_growth_periods"]).difference(config["periods"]))
+    if invalid_lag_periods:
+        raise ValueError(f"CONFIG['lag_growth_periods'] includes periods not listed in CONFIG['periods']: {invalid_lag_periods}.")
+    if "FULL" in config["lag_growth_periods"]:
+        raise ValueError(
+            "FULL cannot be included in CONFIG['lag_growth_periods'] because the full-period model uses P1 starting covariates and has no prior-period lag."
+        )
+
+    required_categorical_keys = {"column", "reference", "display_prefix", "interpretation_template"}
+    seen_categorical_columns = set()
+    for i, control in enumerate(config["categorical_controls"], start=1):
+        missing_control_keys = sorted(required_categorical_keys.difference(control))
+        if missing_control_keys:
+            raise ValueError(f"categorical_controls item {i} is missing keys: {missing_control_keys}.")
+        if control["column"] in seen_categorical_columns:
+            raise ValueError(f"Duplicate categorical control column {control['column']!r}.")
+        seen_categorical_columns.add(control["column"])
+
+    if not (0 <= config["winsor_lower"] < config["winsor_upper"] <= 1):
+        raise ValueError("CONFIG winsor settings must satisfy 0 <= winsor_lower < winsor_upper <= 1.")
+
+    if config["covariance_type"] not in {"nonrobust", "HC1", "HC3"}:
+        raise ValueError("CONFIG['covariance_type'] must be one of: 'nonrobust', 'HC1', 'HC3'.")
+
+    validate_model_variants(config)
+
+
+def validate_model_variants(config: dict[str, Any]) -> None:
+    if not isinstance(config["model_variants"], list) or not config["model_variants"]:
+        raise ValueError("CONFIG['model_variants'] must be a non-empty list.")
+
+    required_variant_keys = {"suffix", "model_family", "winsorised", "standardised_model"}
+    suffixes = []
+    for variant in config["model_variants"]:
+        missing = sorted(required_variant_keys.difference(variant))
+        if missing:
+            raise ValueError(f"Each model variant must contain {sorted(required_variant_keys)}. Missing: {missing}.")
+        suffixes.append(variant["suffix"])
+        if not isinstance(variant["winsorised"], bool) or not isinstance(variant["standardised_model"], bool):
+            raise ValueError(f"Model variant {variant['suffix']!r} must use boolean winsorised and standardised_model flags.")
+
+    duplicates = sorted({suffix for suffix in suffixes if suffixes.count(suffix) > 1})
+    if duplicates:
+        raise ValueError(f"CONFIG['model_variants'] contains duplicate suffixes: {duplicates}.")
+
+    configured_suffixes = set(suffixes)
+    required_suffixes = set(COMPARISON_VARIANT_ORDER)
+    missing_suffixes = sorted(required_suffixes.difference(configured_suffixes))
+    if missing_suffixes:
+        raise ValueError(
+            "CONFIG['model_variants'] is missing variants required by the fixed output workbook: "
+            f"{missing_suffixes}. Add these suffixes or update COMPARISON_VARIANT_ORDER in the script."
+        )
+
+
+def get_model_variants(config: dict[str, Any]) -> list[dict[str, Any]]:
+    variants = []
+    for variant in config["model_variants"]:
+        if variant["standardised_model"] and not config["standardised_models"]:
+            continue
+        if variant["winsorised"] and not config["winsorise_dependent"]:
+            continue
+        variants.append(dict(variant))
+    return variants
+
+
+def render_regressor_column(regressor: dict[str, Any], period: str) -> str:
+    return regressor["column_pattern"].format(base_name=regressor["base_name"], period=period)
+
+
+def get_base_regressor_by_name(config: dict[str, Any], base_name: str) -> dict[str, Any] | None:
+    for regressor in config["base_regressors"]:
+        if regressor["base_name"] == base_name:
+            return regressor
+    return None
+
+
+def resolve_interaction_variable(config: dict[str, Any], variable_name: str, period: str) -> str:
+    regressor = get_base_regressor_by_name(config, variable_name)
+    if regressor is not None:
+        return render_regressor_column(regressor, period)
+    if variable_name == config["owner_variable"]["column"]:
+        return config["owner_variable"]["column"]
+    if variable_name in get_categorical_columns(config):
+        raise ValueError("Categorical interactions are not supported yet. Please use numeric or dummy variables only.")
+    raise ValueError(
+        f"Interaction variable {variable_name!r} is not supported. "
+        "Use a base regressor name or the owner column."
+    )
+
+
+def build_interaction_column_name(interaction_name: str, period: str) -> str:
+    return f"{interaction_name}_{period}"
+
+
+def get_interaction_column_names(config: dict[str, Any]) -> set[str]:
+    return {
+        build_interaction_column_name(interaction["name"], period)
+        for interaction in get_active_interactions()
+        for period in config["periods"]
+    }
+
+
+def get_interaction_source_columns(config: dict[str, Any]) -> set[str]:
+    source_columns = set()
+    for interaction in get_active_interactions():
+        for period in config["periods"]:
+            regressor_period = get_regressor_period_for_model(period)
+            for variable_name in interaction["variables"]:
+                source_columns.add(resolve_interaction_variable(config, variable_name, regressor_period))
+    return source_columns
+
+
+def add_interaction_columns(
+    df: pd.DataFrame,
+    config: dict[str, Any],
+    models: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    output = df.copy()
+    active_interactions = get_active_interactions()
+    if not active_interactions:
+        return output
+
+    for period in models:
+        regressor_period = get_regressor_period_for_model(period)
+        for interaction in active_interactions:
+            source_columns = [
+                resolve_interaction_variable(config, variable_name, regressor_period)
+                for variable_name in interaction["variables"]
+            ]
+            interaction_column = build_interaction_column_name(interaction["name"], period)
+            left = pd.to_numeric(output[source_columns[0]], errors="coerce")
+            right = pd.to_numeric(output[source_columns[1]], errors="coerce")
+            output[interaction_column] = left * right
+    return output
+
+
+def build_models(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    models: dict[str, dict[str, Any]] = {}
+    lag_periods = set(config["lag_growth_periods"]) if config["include_lag_growth"] else set()
+    for period in config["periods"]:
+        regressor_period = get_regressor_period_for_model(period)
+        regressors = [render_regressor_column(regressor, regressor_period) for regressor in config["base_regressors"]]
+        if config["include_owner"]:
+            regressors.append(config["owner_variable"]["column"])
+        regressors.extend(
+            build_interaction_column_name(interaction["name"], period)
+            for interaction in get_active_interactions()
+        )
+        if period in lag_periods:
+            regressors.append(lag_growth_col(config, period))
+
+        models[period] = {
+            "dependent": growth_col(config, period),
+            "regressors": regressors,
         }
-        for level in sector_levels
-        if level != SECTOR_REFERENCE_LEVEL
+    return models
+
+
+def get_categorical_columns(config: dict[str, Any]) -> list[str]:
+    return [control["column"] for control in config["categorical_controls"]]
+
+
+def get_categorical_control(config: dict[str, Any], column: str) -> dict[str, Any]:
+    for control in config["categorical_controls"]:
+        if control["column"] == column:
+            return control
+    raise KeyError(f"Unknown categorical control: {column}")
+
+
+def load_input_data(config: dict[str, Any]) -> pd.DataFrame:
+    input_path = Path(config["input_file"])
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}. Change CONFIG['input_file'].")
+    return pd.read_parquet(input_path)
+
+
+def get_required_columns(config: dict[str, Any], models: dict[str, dict[str, Any]]) -> list[str]:
+    required = {trajectory_col(config), *get_categorical_columns(config)}
+    interaction_columns = get_interaction_column_names(config)
+    for model_spec in models.values():
+        required.add(model_spec["dependent"])
+        required.update(regressor for regressor in model_spec["regressors"] if regressor not in interaction_columns)
+    required.update(get_interaction_source_columns(config))
+    return sorted(required)
+
+
+def validate_input_columns(df: pd.DataFrame, config: dict[str, Any], models: dict[str, dict[str, Any]]) -> None:
+    missing = sorted(set(get_required_columns(config, models)).difference(df.columns))
+    if missing:
+        raise ValueError(
+            "Input file is missing columns generated from CONFIG: "
+            f"{missing}. Check growth_mode, periods, base_regressors column_pattern, owner_variable, "
+            "lag_growth_periods, and interaction_terms source variables."
+        )
+
+
+def apply_sample_filter(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
+    sample_filter = get_sample_filter(config)
+    try:
+        filtered = df.query(sample_filter, engine="python").copy()
+    except Exception as exc:
+        raise ValueError(f"CONFIG sample filter failed: {sample_filter!r}. Edit CONFIG['base_sample_filter'].") from exc
+    if filtered.empty:
+        raise ValueError(f"Sample filter returned zero rows: {sample_filter!r}. Edit CONFIG['base_sample_filter'].")
+    return filtered
+
+
+def get_categorical_levels(df: pd.DataFrame, config: dict[str, Any]) -> dict[str, list[str]]:
+    levels: dict[str, list[str]] = {}
+    for control in config["categorical_controls"]:
+        column = control["column"]
+        observed = sorted(df[column].dropna().astype(str).unique().tolist())
+        reference = str(control["reference"])
+        if reference not in observed:
+            raise ValueError(
+                f"Reference category {reference!r} not found for categorical control {column!r} after sample filtering. "
+                "Change the control reference or base_sample_filter."
+            )
+        levels[column] = [reference] + [level for level in observed if level != reference]
+    return levels
+
+
+def make_registry_entry(
+    display_name: str,
+    interpretation: str,
+    standardise: bool,
+    variable_type: str,
+    source: str,
+    order: int,
+    period: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "display_name": display_name,
+        "interpretation": interpretation,
+        "standardise": bool(standardise),
+        "variable_type": variable_type,
+        "source": source,
+        "order": order,
+        "period": period,
+    }
+
+
+def build_variable_registry(
+    config: dict[str, Any],
+    models: dict[str, dict[str, Any]],
+    categorical_levels: dict[str, list[str]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    registry: dict[str, dict[str, Any]] = {}
+
+    for order, regressor in enumerate(config["base_regressors"], start=10):
+        for period in config["periods"]:
+            regressor_period = get_regressor_period_for_model(period)
+            column = render_regressor_column(regressor, regressor_period)
+            registry[column] = make_registry_entry(
+                display_name=regressor["display_name"],
+                interpretation=regressor["interpretation"],
+                standardise=regressor["standardise"],
+                variable_type="numeric",
+                source=regressor["base_name"],
+                order=order,
+                period=period,
+            )
+
+    if config["include_owner"]:
+        owner = config["owner_variable"]
+        registry[owner["column"]] = make_registry_entry(
+            display_name=owner["display_name"],
+            interpretation=owner["interpretation"],
+            standardise=owner["standardise"],
+            variable_type="dummy",
+            source="owner",
+            order=1000,
+        )
+
+    for order, interaction in enumerate(get_active_interactions(), start=1500):
+        for period in config["periods"]:
+            column = build_interaction_column_name(interaction["name"], period)
+            registry[column] = make_registry_entry(
+                display_name=interaction["display_name"],
+                interpretation=interaction["interpretation"],
+                standardise=interaction["standardise"],
+                variable_type="interaction",
+                source="interaction",
+                order=order,
+                period=period,
+            )
+
+    if config["include_lag_growth"]:
+        for period in config["lag_growth_periods"]:
+            if period in models:
+                column = lag_growth_col(config, period)
+                registry[column] = make_registry_entry(
+                    display_name=config["lag_growth"]["display_name"],
+                    interpretation=config["lag_growth"]["interpretation"],
+                    standardise=config["lag_growth"]["standardise"],
+                    variable_type="lag",
+                    source="lag_growth",
+                    order=3000,
+                    period=period,
+                )
+
+    if categorical_levels is not None:
+        for control_order, control in enumerate(config["categorical_controls"], start=2000):
+            column = control["column"]
+            for level in categorical_levels[column]:
+                raw_name = f"{column}_{level}"
+                is_reference = str(level) == str(control["reference"])
+                registry[raw_name] = make_registry_entry(
+                    display_name=f"{control['display_prefix']}{level}" if not is_reference else f"{control['display_prefix']}reference: {level}",
+                    interpretation=(
+                        f"omitted reference category for {column}"
+                        if is_reference
+                        else control["interpretation_template"]
+                    ),
+                    standardise=False,
+                    variable_type="categorical_reference" if is_reference else "categorical",
+                    source=column,
+                    order=control_order,
+                )
+
+    registry["const"] = make_registry_entry(
+        display_name="const",
+        interpretation="intercept",
+        standardise=False,
+        variable_type="constant",
+        source="constant",
+        order=4000,
     )
-    rows.extend(
-        [
-            {
-                "raw_name": SECTOR_REFERENCE_DUMMY,
-                "display_name": f"sector reference: {SECTOR_REFERENCE_LEVEL}",
-                "interpretation": "omitted sector reference category",
-            },
-            {
-                "raw_name": "ownership_reference",
-                "display_name": "ownership reference: Domestic",
-                "interpretation": "reference category for Foreign",
-            },
-            {"raw_name": "lag_growth_log_ann", "display_name": "lag_growth_log_ann", "interpretation": "prior-period growth persistence"},
-            {"raw_name": "const", "display_name": "const", "interpretation": "intercept"},
-        ]
-    )
-    return rows
+    return registry
 
 
-def load_input_data(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        raise FileNotFoundError(f"Input file not found: {path}")
-    return pd.read_parquet(path)
+def validate_registry_against_models(registry: dict[str, dict[str, Any]], models: dict[str, dict[str, Any]]) -> None:
+    missing = []
+    for period, model_spec in models.items():
+        for column in model_spec["regressors"]:
+            if column not in registry:
+                missing.append((period, column))
+    if missing:
+        raise ValueError(f"Internal registry is missing generated model columns: {missing}.")
 
 
-def filter_sample(df: pd.DataFrame) -> pd.DataFrame:
-    return df.loc[(df["in_rank_2019"] == 1) & (df["manufacturing"] == 1)].copy()
+def validate_model_columns_after_filter(
+    filtered_df: pd.DataFrame,
+    config: dict[str, Any],
+    models: dict[str, dict[str, Any]],
+) -> None:
+    missing_by_period = {}
+    for period, model_spec in models.items():
+        model_columns = [model_spec["dependent"], *model_spec["regressors"], *get_categorical_columns(config)]
+        missing = sorted(set(model_columns).difference(filtered_df.columns))
+        if missing:
+            missing_by_period[period] = missing
+    if missing_by_period:
+        raise ValueError(
+            "Generated model columns are missing after sample filtering. "
+            f"Missing by period: {missing_by_period}. Edit CONFIG period/regressor/growth settings."
+        )
 
 
-def get_sector_levels(filtered_df: pd.DataFrame) -> list[str]:
-    if SECTOR_COLUMN not in filtered_df.columns:
-        raise ValueError(f"Required sector column not found in period dataset: {SECTOR_COLUMN}")
-    observed_levels = filtered_df[SECTOR_COLUMN].dropna().astype(str).unique().tolist()
-    if SECTOR_REFERENCE_LEVEL not in observed_levels:
-        raise ValueError(f"Required sector reference level not found in filtered sample: {SECTOR_REFERENCE_LEVEL}")
-    other_levels = sorted(level for level in observed_levels if level != SECTOR_REFERENCE_LEVEL)
-    return [SECTOR_REFERENCE_LEVEL, *other_levels]
-
-
-def winsorize_series(series: pd.Series, lower_q: float = 0.01, upper_q: float = 0.99) -> tuple[pd.Series, float, float, int]:
+def winsorize_series(series: pd.Series, lower_q: float, upper_q: float) -> tuple[pd.Series, float, float, int]:
     non_missing = series.dropna()
+    if non_missing.empty:
+        raise ValueError("Cannot winsorise because the dependent variable has no non-missing observations.")
     lower = float(non_missing.quantile(lower_q))
     upper = float(non_missing.quantile(upper_q))
     clipped = series.clip(lower=lower, upper=upper)
     affected = int(((series < lower) | (series > upper)).fillna(False).sum())
     return clipped, lower, upper, affected
-
-
-def zscore_series(series: pd.Series) -> tuple[pd.Series, float | None]:
-    std = float(series.std(ddof=1))
-    if pd.isna(std) or std == 0:
-        return series.astype(float), None
-    mean = float(series.mean())
-    return ((series - mean) / std).astype(float), std
 
 
 def significance_stars(p_value: float) -> str:
@@ -367,111 +954,195 @@ def significance_stars(p_value: float) -> str:
     return ""
 
 
-def prepare_dataset(
-    df: pd.DataFrame,
-) -> tuple[pd.DataFrame, dict[str, tuple[float | None, float | None]], dict[str, int], int, int, int, list[str]]:
-    input_rows_before_filter = len(df)
-    filtered = filter_sample(df)
-    rows_after_filter = len(filtered)
-    unique_firms_after_filter = filtered["nip"].nunique()
-    sector_levels = get_sector_levels(filtered)
-
-    working = filtered.copy()
-    winsor_bounds_map: dict[str, tuple[float | None, float | None]] = {}
-    winsor_affected_map: dict[str, int] = {}
-
-    for model_name, spec in BASE_MODEL_SPECS.items():
-        if spec["winsorised"]:
-            source = spec["source_dependent"]
-            target = spec["dependent"]
-            working[target], lower, upper, affected = winsorize_series(working[source])
-            winsor_bounds_map[model_name] = (lower, upper)
-            winsor_affected_map[model_name] = affected
-            winsor_bounds_map[f"{model_name}_std"] = (lower, upper)
-            winsor_affected_map[f"{model_name}_std"] = affected
-        else:
-            winsor_bounds_map[model_name] = (None, None)
-            winsor_affected_map[model_name] = 0
-            winsor_bounds_map[f"{model_name}_std"] = (None, None)
-            winsor_affected_map[f"{model_name}_std"] = 0
-
-    return working, winsor_bounds_map, winsor_affected_map, input_rows_before_filter, rows_after_filter, unique_firms_after_filter, sector_levels
+def get_standardisable_regressors(regressors: list[str], registry: dict[str, dict[str, Any]]) -> list[str]:
+    return [
+        column
+        for column in regressors
+        if registry.get(column, {}).get("standardise", False)
+        and registry.get(column, {}).get("variable_type") in {"numeric", "lag", "dummy", "interaction"}
+    ]
 
 
-def run_ols_model(df: pd.DataFrame, model_name: str, spec: dict, sector_levels: list[str]) -> dict:
-    dependent = spec["dependent"]
-    x_vars = spec["x_vars"]
-    estimation_df = df.loc[:, [dependent] + x_vars].dropna().copy()
-    rows_dropped = len(df) - len(estimation_df)
+def build_design_matrix(
+    estimation_df: pd.DataFrame,
+    regressors: list[str],
+    categorical_levels: dict[str, list[str]],
+    registry: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+    standardised_model: bool,
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str]]:
+    categorical_columns = get_categorical_columns(config)
+    numeric_regressors = [column for column in regressors if column not in categorical_columns]
+    x_raw_numeric = estimation_df[numeric_regressors].apply(pd.to_numeric, errors="coerce").astype(float)
+    x_model_numeric = x_raw_numeric.copy()
 
-    y_raw = pd.to_numeric(estimation_df[dependent], errors="coerce").astype(float)
-    categorical_x_vars = spec.get("categorical_x_vars", [])
-    numeric_like_x_vars = [column for column in x_vars if column not in categorical_x_vars]
-    x_raw = estimation_df[numeric_like_x_vars].apply(pd.to_numeric, errors="coerce").astype(float)
+    included_in_standardisation: list[str] = []
+    excluded_from_standardisation: list[str] = []
+    if standardised_model:
+        standardisable = get_standardisable_regressors(numeric_regressors, registry)
+        included_in_standardisation = list(standardisable)
+        excluded_from_standardisation = [column for column in numeric_regressors if column not in standardisable]
+        if standardisable:
+            scaler = StandardScaler()
+            x_model_numeric.loc[:, standardisable] = scaler.fit_transform(x_model_numeric[standardisable])
+    else:
+        excluded_from_standardisation = list(numeric_regressors)
 
-    for column in categorical_x_vars:
-        observed_levels = sorted(estimation_df[column].dropna().astype(str).unique().tolist())
-        categories = sector_levels if column == SECTOR_COLUMN else observed_levels
+    x_raw = x_raw_numeric.copy()
+    x_model = x_model_numeric.copy()
+
+    for column in categorical_columns:
+        categories = categorical_levels[column]
+        control = get_categorical_control(config, column)
         categorical_series = pd.Series(
             pd.Categorical(estimation_df[column].astype(str), categories=categories),
             index=estimation_df.index,
             name=column,
         )
         dummies = pd.get_dummies(categorical_series, prefix=column, drop_first=False, dtype=float)
-        if column == SECTOR_COLUMN:
-            all_sector_dummies = [sector_dummy_name(level) for level in sector_levels]
-            dummies = dummies.reindex(columns=all_sector_dummies, fill_value=0.0)
-            dummies = dummies.drop(columns=[SECTOR_REFERENCE_DUMMY], errors="ignore")
+        expected_columns = [f"{column}_{level}" for level in categories]
+        dummies = dummies.reindex(columns=expected_columns, fill_value=0.0)
+        reference_column = f"{column}_{control['reference']}"
+        dummies = dummies.drop(columns=[reference_column], errors="ignore")
         x_raw = pd.concat([x_raw, dummies], axis=1)
+        x_model = pd.concat([x_model, dummies], axis=1)
+        excluded_from_standardisation.extend(dummies.columns.tolist())
 
-    y = y_raw.copy()
-    X = x_raw.copy()
-    standardisation_skipped: list[str] = []
+    x_raw = sm.add_constant(x_raw, has_constant="add")
+    x_model = sm.add_constant(x_model, has_constant="add")
+    excluded_from_standardisation.append("const")
+    return x_model, x_raw, sorted(set(included_in_standardisation)), sorted(set(excluded_from_standardisation))
 
-    if spec["standardised_model"]:
-        y, y_std = zscore_series(y)
-        if y_std is None:
-            standardisation_skipped.append(dependent)
 
-        for variable in spec["numeric_x_vars"]:
-            X[variable], x_std = zscore_series(X[variable])
-            if x_std is None:
-                standardisation_skipped.append(variable)
+def get_model_name(period: str, variant: dict[str, Any]) -> str:
+    return f"{period}_{variant['suffix']}"
 
-    X = sm.add_constant(X, has_constant="add")
-    fitted = sm.OLS(y, X).fit()
 
-    raw_X_with_const = sm.add_constant(x_raw, has_constant="add")
+def build_model_registry(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    registry = {}
+    for period in config["periods"]:
+        for variant in get_model_variants(config):
+            model_name = get_model_name(period, variant)
+            registry[model_name] = {
+                "period": period,
+                "suffix": variant["suffix"],
+                "model_family": variant["model_family"],
+                "winsorised": variant["winsorised"],
+                "standardised_model": variant["standardised_model"],
+            }
+    return registry
+
+
+def fit_ols(y_model: pd.Series, x_model: pd.DataFrame, config: dict[str, Any]):
+    model = sm.OLS(y_model, x_model)
+    if config["covariance_type"] == "nonrobust":
+        return model.fit()
+    return model.fit(cov_type=config["covariance_type"])
+
+
+def run_model_variant(
+    period: str,
+    model_spec: dict[str, Any],
+    variant: dict[str, Any],
+    filtered_df: pd.DataFrame,
+    categorical_levels: dict[str, list[str]],
+    variable_registry: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    dependent = model_spec["dependent"]
+    regressors = [*model_spec["regressors"], *get_categorical_columns(config)]
+    model_name = get_model_name(period, variant)
+
+    working = filtered_df.loc[:, [dependent, *regressors]].copy()
+    numeric_regressors = [column for column in regressors if column not in get_categorical_columns(config)]
+    working[dependent] = pd.to_numeric(working[dependent], errors="coerce")
+    working[numeric_regressors] = working[numeric_regressors].apply(pd.to_numeric, errors="coerce")
+    estimation_df = working.dropna().copy()
+    rows_dropped = len(filtered_df) - len(estimation_df)
+    if estimation_df.empty:
+        raise ValueError(
+            f"Model {model_name} has zero observations after dropping missing dependent/regressor values. "
+            "Check generated regressors and sample filter."
+        )
+
+    y_effective = estimation_df[dependent].astype(float).copy()
+    winsor_lower = None
+    winsor_upper = None
+    winsor_affected = 0
+    dependent_used = dependent
+
+    if variant["winsorised"]:
+        y_effective, winsor_lower, winsor_upper, winsor_affected = winsorize_series(
+            y_effective,
+            config["winsor_lower"],
+            config["winsor_upper"],
+        )
+        dependent_used = f"{dependent}_w"
+
+    x_model, x_raw, standardised_variables, non_standardised_variables = build_design_matrix(
+        estimation_df=estimation_df,
+        regressors=regressors,
+        categorical_levels=categorical_levels,
+        registry=variable_registry,
+        config=config,
+        standardised_model=bool(variant["standardised_model"]),
+    )
+
+    y_model = y_effective.copy()
+    dependent_standardised = False
+    if variant["standardised_model"] and config["standardise_dependent"]:
+        y_scaler = StandardScaler()
+        y_model = pd.Series(y_scaler.fit_transform(y_model.to_frame()).ravel(), index=y_model.index, dtype=float)
+        dependent_standardised = True
+
+    fitted = fit_ols(y_model, x_model, config)
 
     return {
         "model": model_name,
-        "model_family": spec["model_family"],
-        "dependent": dependent,
-        "winsorised": "Yes" if spec["winsorised"] else "No",
-        "standardised_model": "Yes" if spec["standardised_model"] else "No",
-        "sample_filter": SAMPLE_FILTER_TEXT,
-        "x_vars": list(x_raw.columns),
-        "rows_dropped": rows_dropped,
+        "period": period,
+        "model_family": variant["model_family"],
+        "growth_mode": config["growth_mode"],
+        "covariance_type": config["covariance_type"],
+        "dependent_variable": dependent_used,
+        "generated_dependent_variable": dependent,
+        "winsorised": "Yes" if variant["winsorised"] else "No",
+        "standardised_model": "Yes" if variant["standardised_model"] else "No",
+        "dependent_standardised": "Yes" if dependent_standardised else "No",
+        "sample_filter": get_sample_filter(config),
         "observations": int(fitted.nobs),
+        "rows_dropped_due_to_missing": rows_dropped,
+        "includes_categorical_controls": "Yes" if config["categorical_controls"] else "No",
+        "includes_lag_variable": "Yes" if any(variable_registry.get(r, {}).get("variable_type") == "lag" for r in model_spec["regressors"]) else "No",
+        "winsorisation_lower_bound": winsor_lower,
+        "winsorisation_upper_bound": winsor_upper,
+        "observations_affected_by_winsorisation": winsor_affected,
+        "generated_regressors": list(model_spec["regressors"]),
+        "regressors_used": list(x_raw.columns.drop("const")),
+        "standardised_variables": standardised_variables,
+        "non_standardised_variables": non_standardised_variables,
         "result": fitted,
-        "period": spec["period"],
-        "sector_levels": sector_levels,
-        "raw_y_std": float(y_raw.std(ddof=1)),
-        "raw_x_std": raw_X_with_const.std(ddof=1).to_dict(),
-        "standardisation_skipped": standardisation_skipped,
     }
 
 
-def extract_model_summary(model_result: dict) -> dict:
+def extract_model_summary(model_result: dict[str, Any]) -> dict[str, Any]:
     fitted = model_result["result"]
     return {
         "model": model_result["model"],
+        "period": model_result["period"],
         "model_family": model_result["model_family"],
-        "dependent_variable": model_result["dependent"],
+        "growth_mode": model_result["growth_mode"],
+        "dependent_variable": model_result["dependent_variable"],
+        "covariance_type": model_result["covariance_type"],
         "winsorised": model_result["winsorised"],
         "standardised_model": model_result["standardised_model"],
+        "dependent_standardised": model_result["dependent_standardised"],
         "sample_filter": model_result["sample_filter"],
         "observations": model_result["observations"],
+        "rows_dropped_due_to_missing": model_result["rows_dropped_due_to_missing"],
+        "includes_categorical_controls": model_result["includes_categorical_controls"],
+        "includes_lag_variable": model_result["includes_lag_variable"],
+        "winsor_lower": model_result["winsorisation_lower_bound"],
+        "winsor_upper": model_result["winsorisation_upper_bound"],
         "R_squared": fitted.rsquared,
         "adjusted_R_squared": fitted.rsquared_adj,
         "F_statistic": fitted.fvalue,
@@ -479,37 +1150,49 @@ def extract_model_summary(model_result: dict) -> dict:
     }
 
 
-def extract_coefficients(model_result: dict) -> pd.DataFrame:
+def registry_lookup(variable: str, variable_registry: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    if variable in variable_registry:
+        return variable_registry[variable]
+    return make_registry_entry(
+        display_name=variable,
+        interpretation="generated variable not found in registry",
+        standardise=False,
+        variable_type="unknown",
+        source="unknown",
+        order=9999,
+    )
+
+
+def extract_coefficients(
+    model_result: dict[str, Any],
+    variable_registry: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
     fitted = model_result["result"]
     conf_int = fitted.conf_int()
-    display_map = build_display_name_map(model_result["period"], model_result["sector_levels"])
     rows = []
 
     for variable in fitted.params.index:
-        std_beta = None
-        if variable != "const":
-            x_std = model_result["raw_x_std"].get(variable, 0.0)
-            y_std = model_result["raw_y_std"]
-            if y_std and y_std > 0:
-                std_beta = float(fitted.params[variable] * x_std / y_std)
-
+        variable_meta = registry_lookup(variable, variable_registry)
         rows.append(
             {
                 "model": model_result["model"],
+                "period": model_result["period"],
                 "model_family": model_result["model_family"],
-                "dependent_variable": model_result["dependent"],
+                "growth_mode": model_result["growth_mode"],
+                "dependent_variable": model_result["dependent_variable"],
                 "winsorised": model_result["winsorised"],
                 "standardised_model": model_result["standardised_model"],
                 "sample_filter": model_result["sample_filter"],
+                "raw_variable": variable,
                 "variable": variable,
-                "display_name": display_map.get(variable, variable),
+                "display_name": variable_meta["display_name"],
+                "variable_type": variable_meta["variable_type"],
                 "coefficient": fitted.params[variable],
-                "std_beta": std_beta,
-                "std_error": fitted.bse[variable],
-                "t_stat": fitted.tvalues[variable],
-                "p_value": fitted.pvalues[variable],
-                "conf_low": conf_int.loc[variable, 0],
-                "conf_high": conf_int.loc[variable, 1],
+                "std error": fitted.bse[variable],
+                "t-stat": fitted.tvalues[variable],
+                "p-value": fitted.pvalues[variable],
+                "CI lower": conf_int.loc[variable, 0],
+                "CI upper": conf_int.loc[variable, 1],
             }
         )
 
@@ -522,15 +1205,116 @@ def format_value_cell(value: float, p_value: float) -> str:
     return f"{value:.3f}{significance_stars(p_value)}\n({p_value:.3f})"
 
 
-def format_comparison_table(coefficients_df: pd.DataFrame, summary_df: pd.DataFrame, model_names: list[str], value_column: str) -> pd.DataFrame:
-    subset = coefficients_df.loc[coefficients_df["model"].isin(model_names)].copy()
-    subset["formatted"] = subset.apply(lambda row: format_value_cell(row[value_column], row["p_value"]), axis=1)
-    period_map = {model_name: MODEL_SPECS[model_name]["period"] for model_name in model_names}
-    period_columns = [period_map[model_name] for model_name in model_names]
+def get_comparison_column_label(model_name: str) -> str:
+    period, suffix = model_name.split("_", 1)
+    display_suffix = COMPARISON_VARIANT_DISPLAY.get(suffix, suffix)
+    return f"{period}_{display_suffix}"
 
+
+def build_comparison_row_order(
+    config: dict[str, Any],
+    coefficients_df: pd.DataFrame,
+    variable_registry: dict[str, dict[str, Any]],
+) -> list[str]:
+    ordered = [regressor["display_name"] for regressor in config["base_regressors"]]
+
+    if config["include_owner"]:
+        ordered.append(config["owner_variable"]["display_name"])
+
+    ordered.extend(
+        interaction["display_name"]
+        for interaction in get_active_interactions()
+    )
+
+    categorical_rows = (
+        coefficients_df.loc[coefficients_df["variable_type"] == "categorical", ["raw_variable", "display_name"]]
+        .drop_duplicates()
+        .assign(order=lambda frame: frame["raw_variable"].map(lambda raw: variable_registry[raw]["order"]))
+        .sort_values(["order", "display_name"])
+    )
+    ordered.extend(categorical_rows["display_name"].tolist())
+
+    if config["include_lag_growth"]:
+        ordered.append(config["lag_growth"]["display_name"])
+
+    ordered.extend(["const", *SUMMARY_ROWS])
+    return list(dict.fromkeys(ordered))
+
+
+def validate_comparison_display_names(coefficients_df: pd.DataFrame) -> None:
+    duplicates = coefficients_df.loc[
+        coefficients_df.duplicated(subset=["model", "display_name"], keep=False),
+        ["model", "display_name", "raw_variable", "variable_type"],
+    ].sort_values(["model", "display_name", "raw_variable"])
+
+    if duplicates.empty:
+        return
+
+    details = []
+    for (model, display_name), group in duplicates.groupby(["model", "display_name"], sort=False):
+        raw_variables = group["raw_variable"].astype(str).tolist()
+        details.append(f"{model}: display_name {display_name!r} is used by raw variables {raw_variables}")
+
+    raise ValueError(
+        "Comparison tables require one unique display_name per model, but duplicate labels were generated. "
+        "Edit CONFIG so each base_regressors display_name and categorical display label is unique. "
+        "Duplicate labels found: "
+        + " | ".join(details)
+    )
+
+
+def get_inactive_variant_reason(suffix: str, config: dict[str, Any]) -> str:
+    variant_lookup = {variant["suffix"]: variant for variant in config["model_variants"]}
+    variant = variant_lookup.get(suffix)
+    if variant is None:
+        return f"variant {suffix!r} is not listed in CONFIG['model_variants']"
+    if variant["standardised_model"] and not config["standardised_models"]:
+        return f"variant {suffix!r} requires CONFIG['standardised_models'] = True"
+    if variant["winsorised"] and not config["winsorise_dependent"]:
+        return f"variant {suffix!r} requires CONFIG['winsorise_dependent'] = True"
+    return f"variant {suffix!r} is inactive for an unknown reason"
+
+
+def validate_comparison_variants_active(variant_suffixes: list[str], config: dict[str, Any]) -> None:
+    active_suffixes = {variant["suffix"] for variant in get_model_variants(config)}
+    inactive_suffixes = [suffix for suffix in variant_suffixes if suffix not in active_suffixes]
+    if inactive_suffixes:
+        reasons = [get_inactive_variant_reason(suffix, config) for suffix in inactive_suffixes]
+        raise ValueError(
+            "Cannot build requested comparison sheet because one or more model variants are inactive: "
+            + "; ".join(reasons)
+        )
+
+
+def build_comparison_sheet(
+    coefficients_df: pd.DataFrame,
+    summary_df: pd.DataFrame,
+    config: dict[str, Any],
+    row_order: list[str],
+    variant_suffixes: list[str],
+) -> pd.DataFrame:
+    validate_comparison_variants_active(variant_suffixes, config)
+    model_names = [
+        f"{period}_{suffix}"
+        for period in config["periods"]
+        for suffix in variant_suffixes
+    ]
+    missing_models = [model_name for model_name in model_names if model_name not in set(summary_df["model"])]
+    if missing_models:
+        raise ValueError(f"Cannot build comparison sheet because these expected models were not estimated: {missing_models}")
+
+    subset = coefficients_df.loc[coefficients_df["model"].isin(model_names)].copy()
+    subset["formatted"] = subset.apply(lambda row: format_value_cell(row["coefficient"], row["p-value"]), axis=1)
+    duplicate_cells = subset.duplicated(subset=["model", "display_name"], keep=False)
+    if duplicate_cells.any():
+        duplicated = subset.loc[duplicate_cells, ["model", "display_name", "raw_variable"]]
+        raise ValueError(
+            "Cannot build comparison table because multiple raw variables map to the same display_name "
+            f"within a model: {duplicated.to_dict(orient='records')}"
+        )
     table = subset.pivot(index="display_name", columns="model", values="formatted")
-    table = table.reindex(index=DISPLAY_ORDER, columns=model_names).fillna("")
-    table.columns = period_columns
+    table = table.reindex(index=row_order, columns=model_names).fillna("")
+    table.columns = [get_comparison_column_label(model_name) for model_name in model_names]
 
     summary_indexed = summary_df.set_index("model")
     table = table.astype(object)
@@ -541,182 +1325,441 @@ def format_comparison_table(coefficients_df: pd.DataFrame, summary_df: pd.DataFr
     return table.reset_index().rename(columns={"index": "display_name"})
 
 
+def find_company_name_column(df: pd.DataFrame) -> str | None:
+    for column in ["company_name", "name", "company", "firma", "nazwa"]:
+        if column in df.columns:
+            return column
+    return None
+
+
+def get_model_missing_frame(
+    filtered_df: pd.DataFrame,
+    config: dict[str, Any],
+    model_spec: dict[str, Any],
+) -> pd.DataFrame:
+    dependent = model_spec["dependent"]
+    regressors = [*model_spec["regressors"], *get_categorical_columns(config)]
+    working = filtered_df.loc[:, [dependent, *regressors]].copy()
+    numeric_regressors = [column for column in regressors if column not in get_categorical_columns(config)]
+    working[dependent] = pd.to_numeric(working[dependent], errors="coerce")
+    working[numeric_regressors] = working[numeric_regressors].apply(pd.to_numeric, errors="coerce")
+    return working.isna()
+
+
+def get_missing_reason(dependent_missing: bool, control_missing: bool) -> str:
+    if dependent_missing and control_missing:
+        return "missing dependent and regressor/control"
+    if dependent_missing:
+        return "missing dependent variable"
+    return "missing regressor/control"
+
+
+def build_dropped_rows_table(
+    filtered_df: pd.DataFrame,
+    config: dict[str, Any],
+    models: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    output_columns = [
+        "model",
+        "period",
+        "model_family",
+        "winsorised",
+        "standardised_model",
+        "nip",
+        "company",
+        "dependent_variable",
+        "missing_columns",
+        "missing_values_count",
+        "row_index",
+        "reason",
+    ]
+    rows = []
+    company_column = find_company_name_column(filtered_df)
+
+    for period, model_spec in models.items():
+        dependent = model_spec["dependent"]
+        regressors = [*model_spec["regressors"], *get_categorical_columns(config)]
+        model_columns = [dependent, *regressors]
+        missing_frame = get_model_missing_frame(filtered_df, config, model_spec)
+        dropped_mask = missing_frame.any(axis=1)
+        if not dropped_mask.any():
+            continue
+
+        for variant in get_model_variants(config):
+            model_name = get_model_name(period, variant)
+            for row_index, missing_values in missing_frame.loc[dropped_mask].iterrows():
+                missing_columns = [column for column in model_columns if bool(missing_values[column])]
+                dependent_missing = dependent in missing_columns
+                control_missing = any(column != dependent for column in missing_columns)
+                rows.append(
+                    {
+                        "model": model_name,
+                        "period": period,
+                        "model_family": variant["model_family"],
+                        "winsorised": "Yes" if variant["winsorised"] else "No",
+                        "standardised_model": "Yes" if variant["standardised_model"] else "No",
+                        "nip": filtered_df.at[row_index, "nip"] if "nip" in filtered_df.columns else None,
+                        "company": filtered_df.at[row_index, company_column] if company_column else None,
+                        "dependent_variable": dependent,
+                        "missing_columns": ", ".join(missing_columns),
+                        "missing_values_count": len(missing_columns),
+                        "row_index": row_index,
+                        "reason": get_missing_reason(dependent_missing, control_missing),
+                    }
+                )
+
+    if not rows:
+        return pd.DataFrame(columns=output_columns)
+    return pd.DataFrame(rows, columns=output_columns)
+
+
+def summarize_top_missing_columns(dropped_rows_df: pd.DataFrame, model_name: str) -> str:
+    if dropped_rows_df.empty:
+        return "No dropped rows"
+    subset = dropped_rows_df.loc[dropped_rows_df["model"] == model_name, "missing_columns"]
+    if subset.empty:
+        return "No dropped rows"
+
+    counts: dict[str, int] = {}
+    for value in subset.dropna().astype(str):
+        for column in [part.strip() for part in value.split(",") if part.strip()]:
+            counts[column] = counts.get(column, 0) + 1
+    if not counts:
+        return "No dropped rows"
+    return ", ".join(f"{column}: {count}" for column, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
+def get_generated_interaction_columns_by_period(config: dict[str, Any]) -> str:
+    active_interactions = get_active_interactions()
+    if not active_interactions:
+        return "No interaction terms configured"
+    return "; ".join(
+        f"{period}: "
+        + ", ".join(build_interaction_column_name(interaction["name"], period) for interaction in active_interactions)
+        for period in config["periods"]
+    )
+
+
 def build_diagnostics_table(
-    model_results: list[dict],
-    winsor_bounds_map: dict[str, tuple[float | None, float | None]],
-    winsor_affected_map: dict[str, int],
-    input_rows_before_filter: int,
-    rows_after_filter: int,
-    unique_firms_after_filter: int,
+    model_results: list[dict[str, Any]],
+    filtered_df: pd.DataFrame,
+    input_df: pd.DataFrame,
+    config: dict[str, Any],
+    dropped_rows_df: pd.DataFrame,
 ) -> pd.DataFrame:
     rows = []
+    generated_dependents = {period: growth_col(config, period) for period in config["periods"]}
+    format_list = lambda values: ", ".join(values) if values else "No variables"
     for model_result in model_results:
-        lower, upper = winsor_bounds_map[model_result["model"]]
         rows.append(
             {
-                "input_rows_before_filter": input_rows_before_filter,
-                "rows_after_filter": rows_after_filter,
-                "unique_firms_after_filter": unique_firms_after_filter,
+                "analysis_name": config["analysis_name"],
+                "sample_name": config["sample_name"],
+                "growth_mode": config["growth_mode"],
+                "base_sample_filter": config["base_sample_filter"],
+                "sample_filter": get_sample_filter(config),
+                "input_row_count": len(input_df),
+                "row_count_after_filter": len(filtered_df),
+                "unique_firms_after_filter": filtered_df["nip"].nunique() if "nip" in filtered_df else None,
                 "model": model_result["model"],
+                "period": model_result["period"],
                 "model_family": model_result["model_family"],
-                "winsorisation_lower_bound": lower,
-                "winsorisation_upper_bound": upper,
-                "observations_affected_by_winsorisation": winsor_affected_map[model_result["model"]],
-                "rows_dropped_due_to_missing": model_result["rows_dropped"],
-                "x_variables_used": ", ".join(model_result["x_vars"]),
+                "covariance_type": model_result["covariance_type"],
+                "generated_dependent_variables_by_period": "; ".join(f"{p}: {v}" for p, v in generated_dependents.items()),
+                "interaction_terms_configured": format_list([interaction["name"] for interaction in get_active_interactions()]).replace("No variables", "No interaction terms configured"),
+                "generated_interaction_columns_by_period": get_generated_interaction_columns_by_period(config),
+                "dependent_variable": model_result["dependent_variable"],
+                "generated_regressors_for_period": ", ".join(model_result["generated_regressors"]),
+                "x_variables_used": ", ".join(model_result["regressors_used"]),
+                "variables_included_in_standardisation": format_list(model_result["standardised_variables"]),
+                "variables_excluded_from_standardisation": format_list(model_result["non_standardised_variables"]),
+                "winsorisation_lower_bound": model_result["winsorisation_lower_bound"],
+                "winsorisation_upper_bound": model_result["winsorisation_upper_bound"],
+                "observations_affected_by_winsorisation": model_result["observations_affected_by_winsorisation"],
+                "rows_dropped_due_to_missing": model_result["rows_dropped_due_to_missing"],
+                "dropped_unique_firms": (
+                    dropped_rows_df.loc[dropped_rows_df["model"] == model_result["model"], "nip"].nunique()
+                    if "nip" in dropped_rows_df.columns and not dropped_rows_df.empty
+                    else 0
+                ),
+                "top_missing_columns": summarize_top_missing_columns(dropped_rows_df, model_result["model"]),
             }
         )
     return pd.DataFrame(rows)
 
 
-def build_variable_labels_table(sector_levels: list[str]) -> pd.DataFrame:
-    return pd.DataFrame(build_variable_labels_rows(sector_levels))
+def build_variable_labels_table(variable_registry: dict[str, dict[str, Any]], coefficients_df: pd.DataFrame) -> pd.DataFrame:
+    observed_variables = set(coefficients_df["raw_variable"].dropna().astype(str).tolist())
+    rows = []
+    for raw_name, meta in variable_registry.items():
+        if meta["variable_type"] == "categorical_reference" or raw_name in observed_variables or meta["source"] in {"owner", "lag_growth", "constant"}:
+            rows.append(
+                {
+                    "raw_name": raw_name,
+                    "display_name": meta["display_name"],
+                    "variable_type": meta["variable_type"],
+                    "standardise": meta["standardise"],
+                    "interpretation": meta["interpretation"],
+                }
+            )
+
+    return (
+        pd.DataFrame(rows)
+        .drop_duplicates(subset=["raw_name"], keep="first")
+        .sort_values(["variable_type", "display_name", "raw_name"])
+        .reset_index(drop=True)
+    )
 
 
 def write_workbook(
     summary_df: pd.DataFrame,
+    compare_main_df: pd.DataFrame,
+    compare_raw_df: pd.DataFrame,
     coefficients_all_df: pd.DataFrame,
-    compare_baseline_df: pd.DataFrame,
-    compare_winsor_df: pd.DataFrame,
-    compare_baseline_stdbeta_df: pd.DataFrame,
-    compare_winsor_stdbeta_df: pd.DataFrame,
-    compare_baseline_stdmodel_df: pd.DataFrame,
-    compare_winsor_stdmodel_df: pd.DataFrame,
     diagnostics_df: pd.DataFrame,
+    dropped_rows_df: pd.DataFrame,
     variable_labels_df: pd.DataFrame,
-    output_path: Path,
-) -> None:
+    config: dict[str, Any],
+) -> list[str]:
+    output_path = Path(config["output_file"])
+    workbook_tables: dict[str, pd.DataFrame] = {
+        "Model_Summary": summary_df,
+        "Compare_Main": compare_main_df,
+        "Compare_Raw": compare_raw_df,
+        "Coefficients_All": coefficients_all_df,
+        "Diagnostics": diagnostics_df,
+        "Dropped_Rows": dropped_rows_df,
+        "Variable_Labels": variable_labels_df,
+    }
+
+    actual_sheet_names = list(workbook_tables.keys())
+    if actual_sheet_names != OUTPUT_SHEETS:
+        raise ValueError(f"Internal workbook sheet order changed. Expected={OUTPUT_SHEETS}, actual={actual_sheet_names}")
+
     with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
-        summary_df.to_excel(writer, sheet_name="Model_Summary", index=False)
-        coefficients_all_df.to_excel(writer, sheet_name="Coefficients_All", index=False)
-        compare_baseline_df.to_excel(writer, sheet_name="Compare_Baseline", index=False)
-        compare_winsor_df.to_excel(writer, sheet_name="Compare_Winsor", index=False)
-        compare_baseline_stdbeta_df.to_excel(writer, sheet_name="Compare_Baseline_StdBeta", index=False)
-        compare_winsor_stdbeta_df.to_excel(writer, sheet_name="Compare_Winsor_StdBeta", index=False)
-        compare_baseline_stdmodel_df.to_excel(writer, sheet_name="Compare_Baseline_StdModel", index=False)
-        compare_winsor_stdmodel_df.to_excel(writer, sheet_name="Compare_Winsor_StdModel", index=False)
-        diagnostics_df.to_excel(writer, sheet_name="Diagnostics", index=False)
-        variable_labels_df.to_excel(writer, sheet_name="Variable_Labels", index=False)
+        for sheet_name, table in workbook_tables.items():
+            table.to_excel(writer, sheet_name=sheet_name, index=False)
+    return actual_sheet_names
+
+
+def compute_r_squared_matches(summary_df: pd.DataFrame, model_registry: dict[str, dict[str, Any]]) -> dict[str, bool]:
+    matches: dict[str, bool] = {}
+    registry_df = pd.DataFrame(
+        [
+            {
+                "model": model_name,
+                "period": meta["period"],
+                "winsorised": meta["winsorised"],
+                "standardised_model": meta["standardised_model"],
+            }
+            for model_name, meta in model_registry.items()
+        ]
+    )
+    summary_lookup = summary_df.set_index("model")
+
+    for (_period, winsorised), group in registry_df.groupby(["period", "winsorised"], dropna=False):
+        raw_models = group.loc[group["standardised_model"] == False, "model"].tolist()
+        std_models = group.loc[group["standardised_model"] == True, "model"].tolist()
+        if len(raw_models) == 1 and len(std_models) == 1:
+            raw_model = raw_models[0]
+            std_model = std_models[0]
+            matches[raw_model] = abs(float(summary_lookup.loc[raw_model, "R_squared"]) - float(summary_lookup.loc[std_model, "R_squared"])) < 1e-12
+    return matches
 
 
 def print_validation(
-    input_rows_before_filter: int,
-    rows_after_filter: int,
-    unique_firms_after_filter: int,
+    input_df: pd.DataFrame,
+    filtered_df: pd.DataFrame,
+    models: dict[str, dict[str, Any]],
+    model_results: list[dict[str, Any]],
     summary_df: pd.DataFrame,
-    coefficients_all_df: pd.DataFrame,
-    winsor_bounds_map: dict[str, tuple[float | None, float | None]],
-    winsor_affected_map: dict[str, int],
-    sector_levels: list[str],
+    model_registry: dict[str, dict[str, Any]],
+    variable_registry: dict[str, dict[str, Any]],
+    written_sheets: list[str],
+    config: dict[str, Any],
 ) -> None:
-    full_period_df = load_input_data(INPUT_PATH)
-    full_sector_en_values = sorted(full_period_df[SECTOR_COLUMN].dropna().astype(str).unique().tolist())
-    sector_dummy_vars = [sector_dummy_name(level) for level in sector_levels if level != SECTOR_REFERENCE_LEVEL]
-    display_labels_used = DISPLAY_ORDER.copy()
-    sector_model_count = coefficients_all_df.loc[
-        coefficients_all_df["variable"].astype(str).str.startswith(f"{SECTOR_COLUMN}_"), "model"
-    ].nunique()
-    foreign_consistent = (
-        coefficients_all_df.loc[coefficients_all_df["variable"] == "owner_num", "display_name"].dropna().eq("Foreign").all()
+    print("CONFIG-driven period OLS completed")
+    print(f"analysis_name: {config['analysis_name']}")
+    print(f"sample_name: {config['sample_name']}")
+    print(f"growth_mode: {config['growth_mode']}")
+    print(f"base_sample_filter: {config['base_sample_filter']}")
+    print(f"sample_filter: {get_sample_filter(config)}")
+    print(f"covariance_type: {config['covariance_type']}")
+    print(f"input_row_count: {len(input_df):,}")
+    print(f"output_model_count: {len(model_results):,}")
+    print(f"number_of_observations_after_filter: {len(filtered_df):,}")
+    if "nip" in filtered_df:
+        print(f"number_of_firms_after_filter: {filtered_df['nip'].nunique():,}")
+        print(f"duplicate_firm_check_after_filter: {filtered_df['nip'].duplicated().sum():,}")
+    print("generated_dependent_variables_per_period:")
+    for period, model_spec in models.items():
+        print(f"{period}: {model_spec['dependent']}")
+    print("generated_regressors_per_period:")
+    for period, model_spec in models.items():
+        print(f"{period}: {model_spec['regressors']}")
+    print("standardisation_registry:")
+    included = sorted([name for name, meta in variable_registry.items() if meta["standardise"]])
+    excluded = sorted([name for name, meta in variable_registry.items() if not meta["standardise"]])
+    print(f"included: {included}")
+    print(f"excluded: {excluded}")
+    print("winsorised_observations_count_per_model:")
+    for model_result in model_results:
+        if model_result["winsorised"] == "Yes":
+            print(f"{model_result['model']}: {model_result['observations_affected_by_winsorisation']}")
+    print("rows_dropped_due_to_missing_per_model:")
+    for model_result in model_results:
+        print(f"{model_result['model']}: {model_result['rows_dropped_due_to_missing']}")
+    print("missing_counts_for_generated_columns_after_filter:")
+    required_columns = get_required_columns(config, models)
+    missing_counts = filtered_df[required_columns].isna().sum().to_dict()
+    for column, count in missing_counts.items():
+        print(f"{column}: {int(count)}")
+    print("summary_statistics_for_key_outcomes:")
+    dependent_columns = [model_spec["dependent"] for model_spec in models.values()]
+    print(filtered_df[dependent_columns].describe().to_string())
+    print(f"final_coefficient_column_list: {COEFFICIENT_OUTPUT_COLUMNS}")
+    print(f"final_coefficient_column_count: {len(COEFFICIENT_OUTPUT_COLUMNS)}")
+    print(f"R_squared_raw_equals_std: {compute_r_squared_matches(summary_df, model_registry)}")
+    print(f"output_sheets_written: {written_sheets}")
+    print("registry_generates_labels_and_comparison_rows: True")
+
+
+def run_period_ols(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
+    config = dict(config)
+    validate_user_config(config)
+    config = normalise_config(config)
+    validate_config(config)
+
+    models = build_models(config)
+    pre_filter_registry = build_variable_registry(config, models)
+    validate_registry_against_models(pre_filter_registry, models)
+
+    input_df = load_input_data(config)
+    validate_input_columns(input_df, config, models)
+    filtered_df = apply_sample_filter(input_df, config)
+    filtered_df = add_interaction_columns(filtered_df, config, models)
+    validate_model_columns_after_filter(filtered_df, config, models)
+    categorical_levels = get_categorical_levels(filtered_df, config)
+
+    variable_registry = build_variable_registry(config, models, categorical_levels)
+    validate_registry_against_models(variable_registry, models)
+    model_registry = build_model_registry(config)
+
+    model_results = []
+    for period, model_spec in models.items():
+        for variant in get_model_variants(config):
+            model_results.append(
+                run_model_variant(
+                    period=period,
+                    model_spec=model_spec,
+                    variant=variant,
+                    filtered_df=filtered_df,
+                    categorical_levels=categorical_levels,
+                    variable_registry=variable_registry,
+                    config=config,
+                )
+            )
+
+    summary_df = pd.DataFrame([extract_model_summary(model_result) for model_result in model_results])
+    coefficients_internal_df = pd.concat(
+        [extract_coefficients(model_result, variable_registry) for model_result in model_results],
+        ignore_index=True,
     )
-    owner_num_removed_from_user_outputs = not any(label == "owner_num" for label in display_labels_used) and foreign_consistent
-    manufacturing_removed = (
-        "manufacturing" not in coefficients_all_df["variable"].astype(str).tolist()
-        and not coefficients_all_df["display_name"].astype(str).str.contains("manufacturing", case=False, na=False).any()
+    validate_comparison_display_names(coefficients_internal_df)
+    coefficients_all_df = coefficients_internal_df[COEFFICIENT_OUTPUT_COLUMNS]
+
+    row_order = build_comparison_row_order(config, coefficients_internal_df, variable_registry)
+    compare_main_df = build_comparison_sheet(
+        coefficients_df=coefficients_internal_df,
+        summary_df=summary_df,
+        config=config,
+        row_order=row_order,
+        variant_suffixes=COMPARE_MAIN_VARIANTS,
     )
-    print("Confirmation that Data_period was rebuilt from the updated core: True")
-    print(f"Confirmation that sector_en is present in Data_period: {SECTOR_COLUMN in full_period_df.columns}")
-    print(f"List of unique sector_en values in the period dataset: {full_sector_en_values}")
-    print(f"Confirmation that regression dummy creation now uses sector_en: {all(SECTOR_COLUMN in spec['x_vars'] for spec in BASE_MODEL_SPECS.values())}")
-    print(f"Sector reference category used: {SECTOR_REFERENCE_LEVEL}")
-    print(f"Final workbook sheet names: {WORKBOOK_SHEETS}")
-    print(f"Final output paths: {[str(INPUT_PATH.resolve()), str(OUTPUT_XLSX_PATH.resolve())]}")
+    compare_raw_df = build_comparison_sheet(
+        coefficients_df=coefficients_internal_df,
+        summary_df=summary_df,
+        config=config,
+        row_order=row_order,
+        variant_suffixes=COMPARE_RAW_VARIANTS,
+    )
+    dropped_rows_df = build_dropped_rows_table(filtered_df, config, models)
+    diagnostics_df = build_diagnostics_table(model_results, filtered_df, input_df, config, dropped_rows_df)
+    variable_labels_df = build_variable_labels_table(variable_registry, coefficients_internal_df)
+
+    written_sheets = write_workbook(
+        summary_df=summary_df,
+        compare_main_df=compare_main_df,
+        compare_raw_df=compare_raw_df,
+        coefficients_all_df=coefficients_all_df,
+        diagnostics_df=diagnostics_df,
+        dropped_rows_df=dropped_rows_df,
+        variable_labels_df=variable_labels_df,
+        config=config,
+    )
+    print_validation(
+        input_df=input_df,
+        filtered_df=filtered_df,
+        models=models,
+        model_results=model_results,
+        summary_df=summary_df,
+        model_registry=model_registry,
+        variable_registry=variable_registry,
+        written_sheets=written_sheets,
+        config=config,
+    )
+    return {
+        "summary_df": summary_df,
+        "coefficients_df": coefficients_all_df,
+        "compare_main_df": compare_main_df,
+        "compare_raw_df": compare_raw_df,
+        "diagnostics_df": diagnostics_df,
+        "dropped_rows_df": dropped_rows_df,
+        "variable_labels_df": variable_labels_df,
+        "written_sheets": written_sheets,
+        "models": models,
+        "variable_registry": variable_registry,
+        "config_used": {**config, "sample_filter": get_sample_filter(config)},
+    }
 
 
 if __name__ == "__main__":
-    input_df = load_input_data(INPUT_PATH)
-    (
-        model_df,
-        winsor_bounds_map,
-        winsor_affected_map,
-        input_rows_before_filter,
-        rows_after_filter,
-        unique_firms_after_filter,
-        sector_levels,
-    ) = prepare_dataset(input_df)
+    run_period_ols()
 
-    model_results = [run_ols_model(model_df, model_name, spec, sector_levels) for model_name, spec in MODEL_SPECS.items()]
 
-    summary_df = pd.DataFrame([extract_model_summary(model_result) for model_result in model_results])
-    coefficients_internal_df = pd.concat([extract_coefficients(model_result) for model_result in model_results], ignore_index=True)
-    coefficients_all_df = coefficients_internal_df[
-        [
-            "model",
-            "model_family",
-            "dependent_variable",
-            "winsorised",
-            "standardised_model",
-            "sample_filter",
-            "variable",
-            "display_name",
-            "coefficient",
-            "std_error",
-            "t_stat",
-            "p_value",
-            "conf_low",
-            "conf_high",
-        ]
-    ]
-
-    compare_baseline_df = format_comparison_table(
-        coefficients_internal_df, summary_df, ["P1_baseline", "P2_baseline", "P3_baseline"], "coefficient"
-    )
-    compare_winsor_df = format_comparison_table(
-        coefficients_internal_df, summary_df, ["P1_winsor", "P2_winsor", "P3_winsor"], "coefficient"
-    )
-    compare_baseline_stdbeta_df = format_comparison_table(
-        coefficients_internal_df, summary_df, ["P1_baseline", "P2_baseline", "P3_baseline"], "std_beta"
-    )
-    compare_winsor_stdbeta_df = format_comparison_table(
-        coefficients_internal_df, summary_df, ["P1_winsor", "P2_winsor", "P3_winsor"], "std_beta"
-    )
-    compare_baseline_stdmodel_df = format_comparison_table(
-        coefficients_internal_df, summary_df, ["P1_baseline_std", "P2_baseline_std", "P3_baseline_std"], "coefficient"
-    )
-    compare_winsor_stdmodel_df = format_comparison_table(
-        coefficients_internal_df, summary_df, ["P1_winsor_std", "P2_winsor_std", "P3_winsor_std"], "coefficient"
-    )
-
-    diagnostics_df = build_diagnostics_table(
-        model_results,
-        winsor_bounds_map,
-        winsor_affected_map,
-        input_rows_before_filter,
-        rows_after_filter,
-        unique_firms_after_filter,
-    )
-    variable_labels_df = build_variable_labels_table(sector_levels)
-
-    write_workbook(
-        summary_df,
-        coefficients_all_df,
-        compare_baseline_df,
-        compare_winsor_df,
-        compare_baseline_stdbeta_df,
-        compare_winsor_stdbeta_df,
-        compare_baseline_stdmodel_df,
-        compare_winsor_stdmodel_df,
-        diagnostics_df,
-        variable_labels_df,
-        OUTPUT_XLSX_PATH,
-    )
-    print_validation(
-        input_rows_before_filter,
-        rows_after_filter,
-        unique_firms_after_filter,
-        summary_df,
-        coefficients_all_df,
-        winsor_bounds_map,
-        winsor_affected_map,
-        sector_levels,
-    )
+# Technical note
+#
+# CONFIG is now a lightweight researcher cockpit. Most standard numeric
+# regressors are added with one line in CONFIG["base_regressors"], while
+# metadata dictionaries provide optional labels, interpretations, and special
+# rules.
+#
+# The internal model engine still works with fully expanded dictionaries. The
+# normalise_* functions convert the lightweight CONFIG into that internal shape
+# before model construction, validation, registry building, and workbook export.
+#
+# To add a new standard numeric variable, add its base name to
+# CONFIG["base_regressors"]. If a better label, interpretation, standardisation
+# setting, or column pattern is needed, add an entry to REGRESSOR_METADATA.
+#
+# To add a new categorical control, add its column name to
+# CONFIG["categorical_controls"] and add the required reference, display_prefix,
+# and interpretation_template fields to CATEGORICAL_METADATA. The script never
+# guesses categorical reference categories.
+#
+# Standardised beta outputs were removed to reduce duplicated interpretation.
+# Compare_Main is the main interpretation table and uses standardised models.
+# Compare_Raw is kept as a robustness and technical table. Raw coefficients are
+# useful for checking units and robustness, while standardised coefficients are
+# easier for comparing effect sizes across regressors.
+# Coefficients_All remains the detailed technical coefficient output.
+# Dropped_Rows lists the actual companies excluded from each model because of
+# missing dependent, regressor, or categorical-control values, supporting sample
+# transparency and bias checks.
+#
+# Interaction capability is controlled entirely by INTERACTION_METADATA. When
+# INTERACTION_METADATA is empty or all interaction include flags are False, the
+# model results contain no interactions. Interactions are useful for testing
+# whether one predictor modifies the effect of another, but main effects should
+# be interpreted with extra care once interactions are included. Each
+# interaction is entered only once in INTERACTION_METADATA.
