@@ -6,11 +6,14 @@ import numpy as np
 import pandas as pd
 
 
-INPUT_PATH = Path("Data_panel_2019-2024.parquet")
-OUTPUT_PARQUET_PATH = Path("Data_core_2019-2024.parquet")
-OUTPUT_XLSX_PATH = Path("Data_core_2019-2024.xlsx")
+INPUT_PATH = Path("Data_panel_2018-2024.parquet")
+OUTPUT_PARQUET_PATH = Path("Data_core_2018-2024.parquet")
+OUTPUT_XLSX_PATH = Path("Data_core_2018-2024.xlsx")
 
 PRICE_INDEX_BY_YEAR = {
+    # Statistics Poland annual CPI for 2019 versus 2018 was 1.023;
+    # invert it to preserve the existing 2019 = 1.0 base.
+    2018: 0.977517106549,
     2019: 1.000000000,
     2020: 1.034000000,
     2021: 1.086734000,
@@ -19,22 +22,9 @@ PRICE_INDEX_BY_YEAR = {
     2024: 1.434809439,
 }
 
-SECTOR_EN_MAP = {
-    "budownictwo": "construction",
-    "chemia": "chemicals",
-    "energetyka": "energy",
-    "górnictwo i hutnictwo": "mining and metallurgy",
-    "handel detaliczny": "retail trade",
-    "handel hurtowy": "wholesale trade",
-    "media, telekomunkacja, it": "media, telecommunications, and IT",
-    "motoryzacja": "automotive",
-    "ochrona zdrowia i farmacja": "health and pharma",
-    "paliwa": "fuels",
-    "produkcja": "production",
-    "transport": "transport",
-    "usługi": "services",
-    "żywność": "food",
-}
+EXPECTED_YEARS = {2018, 2019, 2020, 2021, 2022, 2023, 2024}
+P1_LAG_SOURCE_YEAR = 2018
+MAIN_ANALYSIS_START_YEAR = 2019
 
 KEY_COLUMNS = ["nip", "year"]
 
@@ -44,16 +34,11 @@ STATIC_COLUMNS = [
     "in_rank_2019",
     "pkd",
     "pkd_description",
-    "sector",
-    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
     "owner_num",
-    "gpw",
     "city",
-    "incorporation_year_krs",
-    "business_start_year",
     "regon",
     "krs",
     "legal_form",
@@ -74,6 +59,10 @@ ANNUAL_COLUMNS = [
     "fixed_assets",
     "current_assets",
     "equity",
+    "zobowiazania_i_rezerwy_na_zobowiazania",
+    "zobowiazania_dlugoterminowe",
+    "zobowiazania_krotkoterminow",
+    "liabilities_provisions",
     "total_liabilities",
 ]
 
@@ -115,12 +104,11 @@ CORE_COLUMNS = KEY_COLUMNS + STATIC_COLUMNS + ANNUAL_COLUMNS + DERIVED_COLUMNS
 INPUT_REQUIRED_COLUMNS = [
     column
     for column in KEY_COLUMNS + STATIC_COLUMNS + ANNUAL_COLUMNS
-    if column not in {"in_rank_2019", "owner", "owner_num", "sector_en", "manufacturing"}
+    if column not in {"in_rank_2019", "owner", "owner_num", "manufacturing"}
 ] + DROP_COLUMNS
 
 INTEGER_COLUMNS = ["year", "rank_2019", "in_rank_2019", "regon", "krs", "pkd", "owner_type"]
 FLOAT_COLUMNS = [
-    "business_start_year",
     "sales",
     "operating_result",
     "profit_before_tax",
@@ -134,10 +122,22 @@ FLOAT_COLUMNS = [
     "fixed_assets",
     "current_assets",
     "equity",
+    "zobowiazania_i_rezerwy_na_zobowiazania",
+    "zobowiazania_dlugoterminowe",
+    "zobowiazania_krotkoterminow",
+    "liabilities_provisions",
     "total_liabilities",
 ]
 
-STRING_COLUMNS = ["nip", "company", "city", "gpw", "incorporation_year_krs", "legal_form", "pkd_description", "sector", "sector_en", "sj"]
+STRING_COLUMNS = ["nip", "company", "city", "legal_form", "pkd_description", "sj"]
+
+UNAVAILABLE_SOURCE_COLUMNS = [
+    "business_start_year",
+    "gpw",
+    "incorporation_year_krs",
+    "sector",
+    "sector_en",
+]
 
 
 def load_input_data(path: Path) -> pd.DataFrame:
@@ -187,19 +187,8 @@ def safe_ratio(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     return numerator.divide(denominator)
 
 
-def create_sector_en(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+def build_derived_variables(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    sector_clean = df["sector"].astype("string").str.strip()
-    sector_key = sector_clean.str.lower()
-    df["sector"] = sector_clean
-    df["sector_en"] = sector_key.map(SECTOR_EN_MAP).astype("string")
-    unmatched = sorted(sector_clean.loc[sector_clean.notna() & df["sector_en"].isna()].dropna().unique().tolist())
-    return df, unmatched
-
-
-def build_derived_variables(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    df = df.copy()
-    df, unmatched_sector_values = create_sector_en(df)
 
     owner_type_string = (
         pd.to_numeric(df["owner_type"], errors="coerce")
@@ -257,7 +246,7 @@ def build_derived_variables(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df["sales_real_growth_yoy"] = np.where(lag_sales_real > 0, df["sales_real"] / lag_sales_real - 1, np.nan)
     df["sales_log_growth_yoy"] = df["ln_sales"] - lag_ln_sales
 
-    return df, unmatched_sector_values
+    return df
 
 
 def select_core_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -303,8 +292,17 @@ def validate_output(df: pd.DataFrame) -> None:
     if list(df.columns) != CORE_COLUMNS:
         raise ValueError("Output columns do not match the expected canonical schema.")
 
-    if set(df["year"].dropna().astype(int).unique()) != {2019, 2020, 2021, 2022, 2023, 2024}:
-        raise ValueError("Output years do not match the expected 2019-2024 range.")
+    output_years = set(df["year"].dropna().astype(int).unique())
+    if output_years != EXPECTED_YEARS:
+        raise ValueError(f"Output years do not match the expected 2018-2024 range: {sorted(output_years)}")
+
+    rows_2018 = df["year"].eq(P1_LAG_SOURCE_YEAR)
+    if not rows_2018.any():
+        raise ValueError("Output does not contain 2018 rows needed for P1 lag growth.")
+    if df.loc[rows_2018, "sales"].notna().sum() == 0:
+        raise ValueError("Output has no observed 2018 sales values for P1 lag growth.")
+    if df.loc[rows_2018, "price_index"].isna().any():
+        raise ValueError("Output has missing 2018 price_index values.")
 
 
 def write_outputs(df: pd.DataFrame, parquet_path: Path, xlsx_path: Path) -> None:
@@ -318,7 +316,7 @@ def build_core_panel(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, dict]
     validate_expected_columns(df)
     df = add_rank_indicators(df)
     df = coerce_numeric_types(df)
-    df, unmatched_sector_values = build_derived_variables(df)
+    df = build_derived_variables(df)
     df = select_core_columns(df)
     df = normalize_strings(df)
     df = drop_invalid_keys(df)
@@ -329,12 +327,17 @@ def build_core_panel(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, dict]
         "input_row_count": input_row_count,
         "output_row_count": len(df),
         "unique_firms": df["nip"].nunique(),
-        "sector_preserved": "sector" in df.columns,
-        "sector_en_added": "sector_en" in df.columns,
-        "sector_values": sorted(df["sector"].dropna().astype(str).unique().tolist()),
-        "sector_en_values": sorted(df["sector_en"].dropna().astype(str).unique().tolist()),
-        "sector_en_missing_count": int(df["sector_en"].isna().sum()),
-        "unmatched_sector_values": unmatched_sector_values,
+        "unavailable_source_columns": UNAVAILABLE_SOURCE_COLUMNS,
+        "duplicate_firm_year_count": int(df.duplicated(KEY_COLUMNS).sum()),
+        "output_years": sorted(df["year"].dropna().astype(int).unique().tolist()),
+        "sales_2018_present_count": int(
+            df.loc[df["year"].eq(P1_LAG_SOURCE_YEAR), "sales"].notna().sum()
+        ),
+        "rows_2018": int(df["year"].eq(P1_LAG_SOURCE_YEAR).sum()),
+        "nonmissing_2018_annual_columns": {
+            column: int(df.loc[df["year"].eq(P1_LAG_SOURCE_YEAR), column].notna().sum())
+            for column in ANNUAL_COLUMNS
+        },
     }
     return df, metadata
 
@@ -344,14 +347,38 @@ def print_build_summary(df: pd.DataFrame, metadata: dict) -> None:
     print(f"Input row count: {metadata['input_row_count']:,}")
     print(f"Output row count: {metadata['output_row_count']:,}")
     print(f"Number of unique firms: {metadata['unique_firms']:,}")
-    print(f"Confirmation that sector is preserved: {metadata['sector_preserved']}")
-    print(f"Confirmation that sector_en was added: {metadata['sector_en_added']}")
-    print(f"Unique values in sector: {metadata['sector_values']}")
-    print(f"Unique values in sector_en: {metadata['sector_en_values']}")
-    print(f"Count of missing sector_en: {metadata['sector_en_missing_count']:,}")
-    print(f"Unmatched original sector values: {metadata['unmatched_sector_values']}")
-    if metadata["unmatched_sector_values"]:
-        print("Warning: unexpected sector values were left with missing sector_en.")
+    print(f"Duplicate (nip, year) rows: {metadata['duplicate_firm_year_count']:,}")
+    print(f"Output years: {metadata['output_years']}")
+    print(
+        "2018 sales is present: "
+        f"{metadata['sales_2018_present_count']:,} of {metadata['rows_2018']:,} rows"
+    )
+    print(
+        "2018 is retained only as the sales base for 2019 P1 lag growth; "
+        "main growth, trajectories, SGrowth_NR, and start covariates begin in 2019."
+    )
+    print(
+        "Non-missing 2018 annual-column counts "
+        f"(missing non-sales annual values are allowed): {metadata['nonmissing_2018_annual_columns']}"
+    )
+    print(
+        "Columns omitted because they are unavailable in the current source: "
+        f"{metadata['unavailable_source_columns']}"
+    )
+    print("Sector mapping not created because the source has no sector column.")
+    print("Final columns:")
+    for column in df.columns:
+        print(column)
+    print(f"Final column count: {len(df.columns)}")
+    print("Missing counts for key variables:")
+    for column in ["sales", "sales_real", "price_index"]:
+        print(f"{column}: {int(df[column].isna().sum()):,}")
+    print("Summary statistics for key outcomes:")
+    print(
+        df[["sales", "sales_real", "sales_growth_yoy", "sales_real_growth_yoy"]]
+        .describe()
+        .to_string()
+    )
 
 
 if __name__ == "__main__":

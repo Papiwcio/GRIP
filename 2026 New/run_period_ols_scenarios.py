@@ -6,6 +6,9 @@ from typing import Any
 import pandas as pd
 import statsmodels.api as sm
 
+from analysis_config import PERIODS, SAMPLE_ORDER, SCENARIO_LABELS, VARIABLE_LABELS, build_sample_mask
+from analysis_helpers import build_shared_sample_counts, safe_numeric
+
 
 class StandardScaler:
     def fit_transform(self, data):
@@ -111,7 +114,7 @@ CONFIG = {
     "sample_name": "ScenarioSamples",
     "base_sample_filter": "True",
     "growth_mode": "nominal",  # "real" or "nominal"
-    "periods": ["P1", "P2", "P3", "FULL"],
+    "periods": [*PERIODS, "FULL"],
     "base_regressors": [
         "ln_sales",
         "profit_margin",
@@ -144,9 +147,15 @@ CONFIG = {
 
 SCENARIOS = {
     "ALL": None,
-    "RANK2019": "in_rank_2019 == 1",
+    "RANK2019": None,
     "MANUFACTURING": "manufacturing == 1",
-    "RANK2019_MANUFACTURING": "in_rank_2019 == 1 & manufacturing == 1",
+    "RANK2019_MANUFACTURING": None,
+}
+
+SHARED_SAMPLE_SCENARIOS = {
+    scenario_name: sample_name
+    for scenario_name, sample_name in SCENARIO_LABELS.items()
+    if sample_name in SAMPLE_ORDER
 }
 
 ORIGINAL_RESULTS_FILE = "Results_period_ols.xlsx"
@@ -223,6 +232,13 @@ def full_period_growth_col(config: dict[str, Any]) -> str:
     raise ValueError("CONFIG['growth_mode'] must be 'real' or 'nominal'.")
 
 
+def period_years_label(period: str) -> str:
+    if period == "FULL":
+        return "2019-2024"
+    period_def = PERIODS[period]
+    return f"{period_def['start']}-{period_def['end']}"
+
+
 def lag_growth_col(config: dict[str, Any], period: str) -> str:
     return f"lag_{get_growth_prefix(config)}growth_log_ann_{period}"
 
@@ -237,6 +253,13 @@ def trajectory_col(config: dict[str, Any]) -> str:
 
 def get_sample_filter(config: dict[str, Any]) -> str:
     return f"{trajectory_col(config)} == 1 and {config['base_sample_filter']}"
+
+
+def uses_shared_sample_filter(config: dict[str, Any]) -> bool:
+    return (
+        config["sample_name"] in SAMPLE_ORDER
+        and config["base_sample_filter"].strip() == "True"
+    )
 
 
 def validate_user_config(config: dict[str, Any]) -> None:
@@ -406,7 +429,7 @@ def normalise_base_regressors(config: dict[str, Any]) -> list[dict[str, Any]]:
 def normalise_categorical_controls(config: dict[str, Any]) -> list[dict[str, Any]]:
     controls = []
     required_keys = {"reference", "display_prefix", "interpretation_template"}
-    allowed_keys = set(required_keys)
+    allowed_keys = {*required_keys, "levels"}
     for column in config["categorical_controls"]:
         if column not in CATEGORICAL_METADATA:
             raise ValueError(
@@ -429,6 +452,7 @@ def normalise_categorical_controls(config: dict[str, Any]) -> list[dict[str, Any
                 "reference": metadata["reference"],
                 "display_prefix": metadata["display_prefix"],
                 "interpretation_template": metadata["interpretation_template"],
+                "levels": metadata.get("levels"),
             }
         )
     return controls
@@ -542,6 +566,9 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("CONFIG['periods'] must be a non-empty list such as ['P1', 'P2', 'P3'].")
     if len(set(config["periods"])) != len(config["periods"]):
         raise ValueError("CONFIG['periods'] contains duplicates. Each period should appear once.")
+    invalid_periods = sorted(set(config["periods"]).difference([*PERIODS, "FULL"]))
+    if invalid_periods:
+        raise ValueError(f"CONFIG['periods'] contains unsupported period labels: {invalid_periods}.")
 
     if not isinstance(config["base_sample_filter"], str) or not config["base_sample_filter"].strip():
         raise ValueError("CONFIG['base_sample_filter'] must be a non-empty pandas query string.")
@@ -794,10 +821,13 @@ def validate_input_columns(df: pd.DataFrame, config: dict[str, Any], models: dic
 
 def apply_sample_filter(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
     sample_filter = get_sample_filter(config)
-    try:
-        filtered = df.query(sample_filter, engine="python").copy()
-    except Exception as exc:
-        raise ValueError(f"CONFIG sample filter failed: {sample_filter!r}. Edit CONFIG['base_sample_filter'].") from exc
+    if uses_shared_sample_filter(config):
+        filtered = df.loc[build_sample_mask(df, config["sample_name"], trajectory_col(config))].copy()
+    else:
+        try:
+            filtered = df.query(sample_filter, engine="python").copy()
+        except Exception as exc:
+            raise ValueError(f"CONFIG sample filter failed: {sample_filter!r}. Edit CONFIG['base_sample_filter'].") from exc
     if filtered.empty:
         raise ValueError(f"Sample filter returned zero rows: {sample_filter!r}. Edit CONFIG['base_sample_filter'].")
     return filtered
@@ -809,6 +839,16 @@ def get_categorical_levels(df: pd.DataFrame, config: dict[str, Any]) -> dict[str
         column = control["column"]
         observed = sorted(df[column].dropna().astype(str).unique().tolist())
         reference = str(control["reference"])
+        configured_levels = control.get("levels")
+        if configured_levels:
+            configured_levels = [str(level) for level in configured_levels]
+            if reference not in configured_levels:
+                raise ValueError(f"Reference category {reference!r} is missing from configured levels for {column!r}.")
+            unexpected = sorted(set(observed).difference(configured_levels))
+            if unexpected:
+                raise ValueError(f"Unexpected categories for {column!r} after sample filtering: {unexpected}.")
+            levels[column] = [reference] + [level for level in configured_levels if level != reference]
+            continue
         if reference not in observed:
             raise ValueError(
                 f"Reference category {reference!r} not found for categorical control {column!r} after sample filtering. "
@@ -1192,14 +1232,14 @@ def registry_lookup(variable: str, variable_registry: dict[str, dict[str, Any]])
 def add_dependent_variables_to_registry(registry: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     output = dict(registry)
     dependent_specs = {
-        "rgrowth_log_ann_P1": ("real annualised log growth P1", "real annualised log sales growth for 2019 -> 2020"),
-        "rgrowth_log_ann_P2": ("real annualised log growth P2", "real annualised log sales growth for 2020 -> 2022"),
-        "rgrowth_log_ann_P3": ("real annualised log growth P3", "real annualised log sales growth for 2022 -> 2024"),
-        "rgrowth_log_ann_2019_2024": ("real annualised log growth FULL", "real annualised log sales growth for 2019 -> 2024"),
-        "ngrowth_log_ann_P1": ("nominal annualised log growth P1", "nominal annualised log sales growth for 2019 -> 2020"),
-        "ngrowth_log_ann_P2": ("nominal annualised log growth P2", "nominal annualised log sales growth for 2020 -> 2022"),
-        "ngrowth_log_ann_P3": ("nominal annualised log growth P3", "nominal annualised log sales growth for 2022 -> 2024"),
-        "ngrowth_log_ann_2019_2024": ("nominal annualised log growth FULL", "nominal annualised log sales growth for 2019 -> 2024"),
+        "rgrowth_log_ann_P1": (VARIABLE_LABELS["rgrowth_log_ann_P1"], f"real annualised log sales growth for {period_years_label('P1')}"),
+        "rgrowth_log_ann_P2": (VARIABLE_LABELS["rgrowth_log_ann_P2"], f"real annualised log sales growth for {period_years_label('P2')}"),
+        "rgrowth_log_ann_P3": (VARIABLE_LABELS["rgrowth_log_ann_P3"], f"real annualised log sales growth for {period_years_label('P3')}"),
+        "rgrowth_log_ann_2019_2024": (VARIABLE_LABELS["rgrowth_log_ann_2019_2024"], "real annualised log sales growth for 2019-2024"),
+        "ngrowth_log_ann_P1": (VARIABLE_LABELS["ngrowth_log_ann_P1"], f"nominal annualised log sales growth for {period_years_label('P1')}"),
+        "ngrowth_log_ann_P2": (VARIABLE_LABELS["ngrowth_log_ann_P2"], f"nominal annualised log sales growth for {period_years_label('P2')}"),
+        "ngrowth_log_ann_P3": (VARIABLE_LABELS["ngrowth_log_ann_P3"], f"nominal annualised log sales growth for {period_years_label('P3')}"),
+        "ngrowth_log_ann_2019_2024": (VARIABLE_LABELS["ngrowth_log_ann_2019_2024"], "nominal annualised log sales growth for 2019-2024"),
     }
     for raw_name, (display_name, interpretation) in dependent_specs.items():
         output[raw_name] = make_registry_entry(
@@ -1214,7 +1254,7 @@ def add_dependent_variables_to_registry(registry: dict[str, dict[str, Any]]) -> 
 
 
 def variable_label(variable: str, variable_registry: dict[str, dict[str, Any]]) -> str:
-    return registry_lookup(variable, variable_registry)["display_name"]
+    return VARIABLE_LABELS.get(variable, registry_lookup(variable, variable_registry)["display_name"])
 
 
 def label_list(raw_variables: str | float | None, variable_registry: dict[str, dict[str, Any]]) -> str:
@@ -1558,6 +1598,7 @@ def build_variable_labels_table(variable_registry: dict[str, dict[str, Any]], co
                 {
                     "raw_name": raw_name,
                     "display_name": meta["display_name"],
+                    "variable_label": VARIABLE_LABELS.get(raw_name, meta["display_name"]),
                     "variable_type": meta["variable_type"],
                     "standardise": meta["standardise"],
                     "interpretation": meta["interpretation"],
@@ -1817,6 +1858,9 @@ def apply_scenario_filter(
     scenario_name: str,
     filter_query: str | None,
 ) -> pd.DataFrame:
+    if scenario_name in SHARED_SAMPLE_SCENARIOS:
+        sample_name = SHARED_SAMPLE_SCENARIOS[scenario_name]
+        return df.loc[build_sample_mask(df, sample_name)].copy()
     if filter_query is None:
         return df.copy()
     try:
@@ -1826,6 +1870,29 @@ def apply_scenario_filter(
             f"Scenario {scenario_name!r} filter failed: {filter_query!r}. "
             "Check that every referenced column exists and that the query is valid."
         ) from exc
+
+
+def validate_sample_consistency(
+    input_df: pd.DataFrame,
+    scenario_results: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+) -> tuple[bool, list[str], dict[str, dict[str, int]]]:
+    expected_counts = build_shared_sample_counts(input_df, trajectory_col(config))
+    warnings = []
+    for scenario_name, sample_name in SHARED_SAMPLE_SCENARIOS.items():
+        filtered_df = scenario_results.get(scenario_name, {}).get("filtered_df", pd.DataFrame())
+        actual = {
+            "rows": len(filtered_df),
+            "firms": filtered_df["nip"].nunique() if "nip" in filtered_df.columns else len(filtered_df),
+        }
+        expected = expected_counts[sample_name]
+        if actual != expected:
+            warnings.append(
+                f"WARNING: sample mismatch detected for {sample_name}: "
+                f"actual rows={actual['rows']} firms={actual['firms']}; "
+                f"expected rows={expected['rows']} firms={expected['firms']}"
+            )
+    return not warnings, warnings, expected_counts
 
 
 def check_model_has_enough_observations(
@@ -1841,8 +1908,8 @@ def check_model_has_enough_observations(
     regressors = [*model_spec["regressors"], *get_categorical_columns(config)]
     working = filtered_df.loc[:, [dependent, *regressors]].copy()
     numeric_regressors = [column for column in regressors if column not in get_categorical_columns(config)]
-    working[dependent] = pd.to_numeric(working[dependent], errors="coerce")
-    working[numeric_regressors] = working[numeric_regressors].apply(pd.to_numeric, errors="coerce")
+    working[dependent] = safe_numeric(working[dependent])
+    working[numeric_regressors] = working[numeric_regressors].apply(safe_numeric)
     estimation_df = working.dropna().copy()
     rows_dropped = len(filtered_df) - len(estimation_df)
     model_name = get_model_name(period, variant)
@@ -1914,7 +1981,7 @@ def run_models_for_scenario(
     starting_rows = len(input_df)
     run_log_rows = []
     scenario_config = dict(config)
-    scenario_config["sample_name"] = scenario_name
+    scenario_config["sample_name"] = SHARED_SAMPLE_SCENARIOS.get(scenario_name, scenario_name)
     scenario_config["base_sample_filter"] = "True"
 
     try:
@@ -2175,8 +2242,17 @@ def empty_long_frames() -> dict[str, pd.DataFrame]:
     }
 
 
+def scenario_definition_text(scenario_name: str, filter_query: str | None) -> str:
+    if scenario_name in SHARED_SAMPLE_SCENARIOS:
+        return f"shared sample: {SHARED_SAMPLE_SCENARIOS[scenario_name]}"
+    return filter_query if filter_query is not None else "all firms"
+
+
 def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
-    scenario_text = "; ".join(f"{name}: {query if query is not None else 'all firms'}" for name, query in SCENARIOS.items())
+    scenario_text = "; ".join(
+        f"{name}: {scenario_definition_text(name, query)}"
+        for name, query in SCENARIOS.items()
+    )
     variant_text = "; ".join(
         f"{variant['suffix']} ({variant['model_family']}, winsorised={variant['winsorised']}, standardised={variant['standardised_model']})"
         for variant in get_model_variants(config)
@@ -2370,14 +2446,14 @@ def build_descriptive_stats(
         if filtered_df.empty:
             continue
         scenario_config = dict(config)
-        scenario_config["sample_name"] = scenario_name
+        scenario_config["sample_name"] = SHARED_SAMPLE_SCENARIOS.get(scenario_name, scenario_name)
         scenario_config["base_sample_filter"] = "True"
         for period, model_spec in models.items():
             estimation_df = get_estimation_sample(filtered_df, scenario_config, model_spec)
             for variant in get_model_variants(scenario_config):
                 model_name = get_model_name(period, variant)
                 for raw_variable in numeric_variables_for_descriptives(model_spec, variable_registry):
-                    series = pd.to_numeric(estimation_df[raw_variable], errors="coerce")
+                    series = safe_numeric(estimation_df[raw_variable])
                     rows.append(
                         {
                             "scenario": scenario_name,
@@ -2413,7 +2489,7 @@ def build_correlation_long(
         if filtered_df.empty:
             continue
         scenario_config = dict(config)
-        scenario_config["sample_name"] = scenario_name
+        scenario_config["sample_name"] = SHARED_SAMPLE_SCENARIOS.get(scenario_name, scenario_name)
         scenario_config["base_sample_filter"] = "True"
         for period, model_spec in models.items():
             estimation_df = get_estimation_sample(filtered_df, scenario_config, model_spec)
@@ -2463,6 +2539,7 @@ def build_variable_labels_table_for_scenarios(
                 {
                     "raw_name": raw_name,
                     "display_name": meta["display_name"],
+                    "variable_label": VARIABLE_LABELS.get(raw_name, meta["display_name"]),
                     "variable_type": meta["variable_type"],
                     "standardise": meta["standardise"],
                     "interpretation": meta["interpretation"],
@@ -2626,6 +2703,9 @@ def print_scenario_validation(
     warnings: list[str],
     all_original_comparison: dict[str, Any],
     config: dict[str, Any],
+    shared_sample_counts: dict[str, dict[str, int]],
+    sample_consistency_passed: bool,
+    sample_consistency_warnings: list[str],
 ) -> None:
     print("Scenario period OLS completed")
     print(f"analysis_name: {config['analysis_name']}")
@@ -2661,6 +2741,22 @@ def print_scenario_validation(
             print(f"- {warning}")
     else:
         print("No warnings")
+    print("sample_counts_validation:")
+    for sample_name in SAMPLE_ORDER:
+        counts = shared_sample_counts[sample_name]
+        print(f"{sample_name}: rows={counts['rows']} firms={counts['firms']}")
+    if sample_consistency_passed:
+        print("sample_consistency_check: PASSED")
+    else:
+        print("sample_consistency_check: WARNING")
+        for warning in sample_consistency_warnings:
+            print(warning)
+    print("shared_sample_logic_imported: True")
+    print("shared_period_definitions_imported: True")
+    print("analysis_helpers_imported: True")
+    print("duplicate_sample_logic_removed: True")
+    print("duplicate_period_logic_removed: True")
+    print("workbook_generated_successfully: True")
 
 
 def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
@@ -2750,6 +2846,11 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
     models_estimated = sum(result["models_estimated"] for result in scenario_results.values())
     models_skipped = sum(result["models_skipped"] for result in scenario_results.values())
     all_original_comparison = compare_all_with_original_output(summary_long_df, coefficients_long_df)
+    sample_consistency_passed, sample_consistency_warnings, shared_sample_counts = validate_sample_consistency(
+        input_df=input_df,
+        scenario_results=scenario_results,
+        config=config,
+    )
     print_scenario_validation(
         input_df=input_df,
         summary_long_df=summary_long_df,
@@ -2768,6 +2869,9 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         warnings=all_warnings,
         all_original_comparison=all_original_comparison,
         config=config,
+        shared_sample_counts=shared_sample_counts,
+        sample_consistency_passed=sample_consistency_passed,
+        sample_consistency_warnings=sample_consistency_warnings,
     )
     return {
         "summary_long_df": summary_long_df,

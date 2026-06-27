@@ -6,6 +6,8 @@ from typing import Any
 import pandas as pd
 import statsmodels.api as sm
 
+from analysis_config import PERIODS, SAMPLE_ORDER, VARIABLE_LABELS, build_sample_mask
+
 
 class StandardScaler:
     def fit_transform(self, data):
@@ -178,6 +180,12 @@ COEFFICIENT_OUTPUT_COLUMNS = [
     "CI upper",
 ]
 
+SHARED_BASE_SAMPLE_FILTERS = {
+    "All": "",
+    "Rank2019": "in_rank_2019 == 1",
+    "Rank2019_Manufacturing": "in_rank_2019 == 1 and manufacturing == 1",
+}
+
 
 def get_growth_prefix(config: dict[str, Any]) -> str:
     if config["growth_mode"] == "real":
@@ -215,6 +223,13 @@ def trajectory_col(config: dict[str, Any]) -> str:
 
 def get_sample_filter(config: dict[str, Any]) -> str:
     return f"{trajectory_col(config)} == 1 and {config['base_sample_filter']}"
+
+
+def uses_shared_sample_filter(config: dict[str, Any]) -> bool:
+    sample_name = config["sample_name"]
+    if sample_name not in SAMPLE_ORDER:
+        return False
+    return config["base_sample_filter"].strip() == SHARED_BASE_SAMPLE_FILTERS[sample_name]
 
 
 def validate_user_config(config: dict[str, Any]) -> None:
@@ -520,6 +535,9 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("CONFIG['periods'] must be a non-empty list such as ['P1', 'P2', 'P3'].")
     if len(set(config["periods"])) != len(config["periods"]):
         raise ValueError("CONFIG['periods'] contains duplicates. Each period should appear once.")
+    invalid_periods = sorted(set(config["periods"]).difference([*PERIODS, "FULL"]))
+    if invalid_periods:
+        raise ValueError(f"CONFIG['periods'] contains unsupported period labels: {invalid_periods}.")
 
     if not isinstance(config["base_sample_filter"], str) or not config["base_sample_filter"].strip():
         raise ValueError("CONFIG['base_sample_filter'] must be a non-empty pandas query string.")
@@ -772,10 +790,14 @@ def validate_input_columns(df: pd.DataFrame, config: dict[str, Any], models: dic
 
 def apply_sample_filter(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
     sample_filter = get_sample_filter(config)
-    try:
-        filtered = df.query(sample_filter, engine="python").copy()
-    except Exception as exc:
-        raise ValueError(f"CONFIG sample filter failed: {sample_filter!r}. Edit CONFIG['base_sample_filter'].") from exc
+    if uses_shared_sample_filter(config):
+        mask = build_sample_mask(df, config["sample_name"], trajectory_col(config))
+        filtered = df.loc[mask].copy()
+    else:
+        try:
+            filtered = df.query(sample_filter, engine="python").copy()
+        except Exception as exc:
+            raise ValueError(f"CONFIG sample filter failed: {sample_filter!r}. Edit CONFIG['base_sample_filter'].") from exc
     if filtered.empty:
         raise ValueError(f"Sample filter returned zero rows: {sample_filter!r}. Edit CONFIG['base_sample_filter'].")
     return filtered
@@ -1497,6 +1519,7 @@ def build_variable_labels_table(variable_registry: dict[str, dict[str, Any]], co
                 {
                     "raw_name": raw_name,
                     "display_name": meta["display_name"],
+                    "variable_label": VARIABLE_LABELS.get(raw_name, meta["display_name"]),
                     "variable_type": meta["variable_type"],
                     "standardise": meta["standardise"],
                     "interpretation": meta["interpretation"],

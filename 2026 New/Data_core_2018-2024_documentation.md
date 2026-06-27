@@ -1,29 +1,32 @@
-# Dataset: Data_core_2019-2024
-Version: v1.0
-Date: 2026-04-17
+# Dataset: Data_core_2018-2024
+Version: v1.1
+Date: 2026-06-27
 Changes:
 - Initial canonical dataset build
-- Added `sector_en` alongside raw `sector`
-- Expanded `sector_en` to cover all observed sector categories with general English translations
+- Extended coverage to 2018 for P1 lag growth
+- Aligned the canonical schema with the columns currently available in `Data_panel_2018-2024.parquet`
+- Omitted unavailable descriptors rather than fabricating or substituting values
 
 ## Purpose
 
-`Data_core_2019-2024.parquet` is the canonical cleaned annual master panel derived from `Data_panel_2019-2024.parquet` for regression analysis.
+`Data_core_2018-2024.parquet` is the canonical cleaned annual master panel derived from `Data_panel_2018-2024.parquet`.
+
+The 2018 observation is included only to supply sales for the 2018 -> 2019 lag-growth calculation used by P1 models. Main growth outcomes, trajectories, `SGrowth_NR`, and start-of-period covariates continue to begin in 2019.
 
 Unit of observation: one row per firm (`nip`) per year (`year`).
 
 ## Source and outputs
 
-- Input: `Data_panel_2019-2024.parquet`
+- Input: `Data_panel_2018-2024.parquet`
 - Production script: `build_core_panel.py`
 - Outputs:
-  - `Data_core_2019-2024.parquet`
-  - `Data_core_2019-2024.xlsx`
+  - `Data_core_2018-2024.parquet`
+  - `Data_core_2018-2024.xlsx`
 - Validation notebook: `check_core_panel.ipynb`
 
 ## Build rules
 
-1. Read the legacy enriched annual panel from `Data_panel_2019-2024.parquet`
+1. Read the annual panel from `Data_panel_2018-2024.parquet`
 2. Keep one row per (`nip`, `year`)
 3. Keep `rank_2019` and create `in_rank_2019`
 4. Drop `rank_2020` to `rank_2024`
@@ -49,16 +52,11 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 - `in_rank_2019`
 - `pkd`
 - `pkd_description`
-- `sector`
-- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
 - `owner_num`
-- `gpw`
 - `city`
-- `incorporation_year_krs`
-- `business_start_year`
 - `regon`
 - `krs`
 - `legal_form`
@@ -79,6 +77,10 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 - `fixed_assets`
 - `current_assets`
 - `equity`
+- `zobowiazania_i_rezerwy_na_zobowiazania`
+- `zobowiazania_dlugoterminowe`
+- `zobowiazania_krotkoterminow`
+- `liabilities_provisions`
 - `total_liabilities`
 
 ### Real and log variables
@@ -119,37 +121,35 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 - `has_assets`
 - `has_employment`
 
-Total columns: `58`
+Total columns: `57`
 
 ## Calculated variables and formulas
 
 ### Structural descriptors
 
 - `in_rank_2019`: `1` if `rank_2019` is non-missing, otherwise `0`.
-- `sector`: original Polish business classification label from the source data.
-- `sector_en`: general English translation of `sector` used for analytical work. It does not replace `sector`; both are kept. `sector_en` is intended to be general and reusable across broader future analyses.
-  - `budownictwo` -> `construction`
-  - `chemia` -> `chemicals`
-  - `energetyka` -> `energy`
-  - `górnictwo i hutnictwo` -> `mining and metallurgy`
-  - `handel detaliczny` -> `retail trade`
-  - `handel hurtowy` -> `wholesale trade`
-  - `media, telekomunkacja, IT` -> `media, telecommunications, and IT`
-  - `motoryzacja` -> `automotive`
-  - `ochrona zdrowia i farmacja` -> `health and pharma`
-  - `paliwa` -> `fuels`
-  - `produkcja` -> `production`
-  - `transport` -> `transport`
-  - `usługi` -> `services`
-  - `żywność` -> `food`
-  Note: whitespace is trimmed before mapping. If an unexpected sector value appears, `sector_en` remains missing and the build script prints a warning.
 - `owner`: `"Foreign"` if `owner_type` starts with `"5"`, otherwise `"Domestic"`.
 - `owner_num`: `1` if `owner = "Foreign"`, otherwise `0`.
 - `manufacturing`: `1` if the two-digit PKD section is between `10` and `33`, otherwise `0`.
 
+The current source does not contain `business_start_year`, `gpw`, `incorporation_year_krs`, or `sector`. Consequently, these columns and the derived `sector_en` column are not part of the canonical output. No proxy or replacement variable is used.
+
+### Liability source columns
+
+The five liability variables are preserved exactly as supplied:
+
+- `total_liabilities`
+- `liabilities_provisions`
+- `zobowiazania_i_rezerwy_na_zobowiazania`
+- `zobowiazania_dlugoterminowe`
+- `zobowiazania_krotkoterminow`
+
+They are raw annual variables, not calculated substitutes for one another. Their observed year coverage differs in the current source, and missing values remain `NaN`.
+
 ### Real and log variables
 
 - `price_index`: year-specific deflator indexed to `2019 = 1.0`.
+  - `2018 = 0.977517106549`
   - `2019 = 1.000000000`
   - `2020 = 1.034000000`
   - `2021 = 1.086734000`
@@ -204,6 +204,8 @@ Total columns: `58`
 - `sales_log_growth_yoy`: `ln_sales_t - ln_sales_{t-1}`, computed within firm after sorting by `nip`, `year`.
   Note: if either log value is missing, return `NaN`.
 
+The 2018 value of `sales` and its derived `sales_real` value provide the 2018 -> 2019 comparison used for P1 lag growth in the period dataset. Other annual financial, employment, and balance-sheet variables may be missing in 2018 and do not cause validation failure.
+
 ### Data quality flags
 
 - `has_sales`: `1` if `sales > 0`, otherwise `0`.
@@ -225,7 +227,8 @@ This rule applies to:
 
 ## Notes for research use
 
-- Panel coverage: `2019-2024`
+- Panel coverage: `2018-2024`
+- Analytical coverage: main outcomes remain `2019-2024`; 2018 is used only for P1 lag growth
 - Grain: annual firm-year only
 - The notebook contains inspection only and no transformation logic
 - The final dataset is sorted by `nip`, `year`

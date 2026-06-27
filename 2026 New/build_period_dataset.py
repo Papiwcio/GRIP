@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 
-INPUT_PATH = Path("Data_core_2019-2024.parquet")
-OUTPUT_PARQUET_PATH = Path("Data_period_2019-2024.parquet")
-OUTPUT_XLSX_PATH = Path("Data_period_2019-2024.xlsx")
+INPUT_PATH = Path("Data_core_2018-2024.parquet")
+OUTPUT_PARQUET_PATH = Path("Data_period_2018-2024.parquet")
+OUTPUT_XLSX_PATH = Path("Data_period_2018-2024.xlsx")
 
 KEY_COLUMN = "nip"
 YEAR_COLUMN = "year"
@@ -19,19 +19,20 @@ PERIODS = {
     "P3": {"start": 2022, "end": 2024, "years": 2},
 }
 
+P1_LAG_PERIOD = {"start": 2018, "end": 2019, "years": 1}
+EXPECTED_INPUT_YEARS = {2018, 2019, 2020, 2021, 2022, 2023, 2024}
+MAIN_ANALYSIS_START_YEAR = 2019
+
 STABLE_DESCRIPTOR_CANDIDATES = [
     "company",
     "rank_2019",
     "in_rank_2019",
     "pkd",
     "pkd_description",
-    "sector",
-    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
     "owner_num",
-    "gpw",
     "city",
     "legal_form",
 ]
@@ -58,13 +59,10 @@ BLOCK_1_COLUMNS = ["nip", "company", "rank_2019", "in_rank_2019"]
 BLOCK_2_COLUMNS = [
     "pkd",
     "pkd_description",
-    "sector",
-    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
     "owner_num",
-    "gpw",
     "city",
     "legal_form",
 ]
@@ -72,22 +70,28 @@ REAL_GROWTH_COLUMNS = ["rgrowth_P1", "rgrowth_P2", "rgrowth_P3"]
 REAL_GROWTH_LOG_COLUMNS = ["rgrowth_log_P1", "rgrowth_log_P2", "rgrowth_log_P3"]
 REAL_GROWTH_LOG_ANN_COLUMNS = ["rgrowth_log_ann_P1", "rgrowth_log_ann_P2", "rgrowth_log_ann_P3"]
 REAL_LAG_COLUMNS = [
+    "lag_rgrowth_P1",
+    "lag_rgrowth_log_P1",
+    "lag_rgrowth_log_ann_P1",
     "lag_rgrowth_P2",
-    "lag_rgrowth_P3",
     "lag_rgrowth_log_P2",
-    "lag_rgrowth_log_P3",
     "lag_rgrowth_log_ann_P2",
+    "lag_rgrowth_P3",
+    "lag_rgrowth_log_P3",
     "lag_rgrowth_log_ann_P3",
 ]
 NOMINAL_GROWTH_COLUMNS = ["ngrowth_P1", "ngrowth_P2", "ngrowth_P3"]
 NOMINAL_GROWTH_LOG_COLUMNS = ["ngrowth_log_P1", "ngrowth_log_P2", "ngrowth_log_P3"]
 NOMINAL_GROWTH_LOG_ANN_COLUMNS = ["ngrowth_log_ann_P1", "ngrowth_log_ann_P2", "ngrowth_log_ann_P3"]
 NOMINAL_LAG_COLUMNS = [
+    "lag_ngrowth_P1",
+    "lag_ngrowth_log_P1",
+    "lag_ngrowth_log_ann_P1",
     "lag_ngrowth_P2",
-    "lag_ngrowth_P3",
     "lag_ngrowth_log_P2",
-    "lag_ngrowth_log_P3",
     "lag_ngrowth_log_ann_P2",
+    "lag_ngrowth_P3",
+    "lag_ngrowth_log_P3",
     "lag_ngrowth_log_ann_P3",
 ]
 REAL_AVAILABILITY_COLUMNS = ["has_rP1_data", "has_rP2_data", "has_rP3_data"]
@@ -175,13 +179,13 @@ TRAJECTORY_LABEL_MAP = {
 }
 TRAJECTORY_GROUP_MAP = {
     "D-D-D": "Persistent decline",
-    "D-G-G": "Reversal",
-    "D-D-G": "Reversal",
+    "D-G-G": "Interrupted trajectory",
+    "D-D-G": "Interrupted trajectory",
     "G-G-G": "Consistent growth",
-    "G-D-D": "Reversal",
-    "D-G-D": "Reversal",
-    "G-D-G": "Reversal",
-    "G-G-D": "Reversal",
+    "G-D-D": "Interrupted trajectory",
+    "D-G-D": "Interrupted trajectory",
+    "G-D-G": "Interrupted trajectory",
+    "G-G-D": "Interrupted trajectory",
 }
 
 
@@ -290,7 +294,11 @@ def classify_quantile_performance(
 
 def validate_input(df: pd.DataFrame) -> None:
     required_columns = {KEY_COLUMN, YEAR_COLUMN, "sales_real", "sales", *START_COVARIATE_BASE_COLUMNS}
-    required_columns.update(column for column in STABLE_DESCRIPTOR_CANDIDATES if column not in {"gpw", "city", "legal_form"})
+    required_columns.update(
+        column
+        for column in STABLE_DESCRIPTOR_CANDIDATES
+        if column not in {"city", "legal_form"}
+    )
     missing = sorted(required_columns.difference(df.columns))
     if missing:
         raise ValueError(f"Input file is missing required columns: {missing}")
@@ -298,11 +306,20 @@ def validate_input(df: pd.DataFrame) -> None:
     if df.duplicated([KEY_COLUMN, YEAR_COLUMN]).any():
         raise ValueError("Input file contains duplicate (nip, year) rows.")
 
+    input_years = set(df[YEAR_COLUMN].dropna().astype(int).unique())
+    if input_years != EXPECTED_INPUT_YEARS:
+        raise ValueError(f"Input years do not match the expected 2018-2024 range: {sorted(input_years)}")
+
+    sales_2018 = df.loc[df[YEAR_COLUMN].eq(P1_LAG_PERIOD["start"]), "sales"]
+    if sales_2018.empty or sales_2018.notna().sum() == 0:
+        raise ValueError("Input has no observed 2018 sales values for P1 lag growth.")
+
 
 def build_stable_descriptors(df: pd.DataFrame) -> pd.DataFrame:
     available_columns = [column for column in STABLE_DESCRIPTOR_CANDIDATES if column in df.columns]
     stable = (
-        df.sort_values([KEY_COLUMN, YEAR_COLUMN], kind="mergesort")
+        df.loc[df[YEAR_COLUMN].ge(MAIN_ANALYSIS_START_YEAR)]
+        .sort_values([KEY_COLUMN, YEAR_COLUMN], kind="mergesort")
         .groupby(KEY_COLUMN, dropna=False)[available_columns]
         .agg(first_non_missing)
         .reset_index()
@@ -335,7 +352,11 @@ def build_start_covariates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_sales_wide(df: pd.DataFrame, value_column: str, value_prefix: str) -> pd.DataFrame:
-    years = sorted({details["start"] for details in PERIODS.values()} | {details["end"] for details in PERIODS.values()})
+    years = sorted(
+        {P1_LAG_PERIOD["start"], P1_LAG_PERIOD["end"]}
+        | {details["start"] for details in PERIODS.values()}
+        | {details["end"] for details in PERIODS.values()}
+    )
     output = build_year_extract(df, years[0], [value_column])[[KEY_COLUMN]].copy()
 
     for year in years:
@@ -447,12 +468,32 @@ def build_period_outcomes_from_wide(
     return output, blocked_log_counts
 
 
-def build_lagged_growth(outcomes: pd.DataFrame, output_prefix: str) -> pd.DataFrame:
+def build_lagged_growth(
+    outcomes: pd.DataFrame,
+    sales_wide: pd.DataFrame,
+    value_prefix: str,
+    output_prefix: str,
+) -> pd.DataFrame:
     output = outcomes[[KEY_COLUMN]].copy()
+    lag_start = sales_wide[
+        f"{value_prefix}_sales_{P1_LAG_PERIOD['start']}"
+    ]
+    lag_end = sales_wide[
+        f"{value_prefix}_sales_{P1_LAG_PERIOD['end']}"
+    ]
+    lag_log_growth = safe_log_growth(lag_start, lag_end)
+
+    output[f"lag_{output_prefix}_P1"] = safe_positive_growth_ratio(
+        lag_start, lag_end
+    )
     output[f"lag_{output_prefix}_P2"] = outcomes[f"{output_prefix}_P1"]
     output[f"lag_{output_prefix}_P3"] = outcomes[f"{output_prefix}_P2"]
+    output[f"lag_{output_prefix}_log_P1"] = lag_log_growth
     output[f"lag_{output_prefix}_log_P2"] = outcomes[f"{output_prefix}_log_P1"]
     output[f"lag_{output_prefix}_log_P3"] = outcomes[f"{output_prefix}_log_P2"]
+    output[f"lag_{output_prefix}_log_ann_P1"] = (
+        lag_log_growth / P1_LAG_PERIOD["years"]
+    )
     output[f"lag_{output_prefix}_log_ann_P2"] = outcomes[f"{output_prefix}_log_ann_P1"]
     output[f"lag_{output_prefix}_log_ann_P3"] = outcomes[f"{output_prefix}_log_ann_P2"]
     return output
@@ -538,9 +579,11 @@ def validate_output_schema(df: pd.DataFrame) -> None:
         *REAL_GROWTH_COLUMNS,
         *REAL_GROWTH_LOG_COLUMNS,
         *REAL_GROWTH_LOG_ANN_COLUMNS,
+        *REAL_LAG_COLUMNS,
         *NOMINAL_GROWTH_COLUMNS,
         *NOMINAL_GROWTH_LOG_COLUMNS,
         *NOMINAL_GROWTH_LOG_ANN_COLUMNS,
+        *NOMINAL_LAG_COLUMNS,
         *REAL_TRAJECTORY_COLUMNS,
         *NOMINAL_TRAJECTORY_COLUMNS,
         *REAL_AVAILABILITY_COLUMNS,
@@ -556,6 +599,11 @@ def validate_output_schema(df: pd.DataFrame) -> None:
     if missing_columns:
         raise ValueError(f"Output is missing required columns: {missing_columns}")
 
+    for lag_columns in [REAL_LAG_COLUMNS, NOMINAL_LAG_COLUMNS]:
+        lag_positions = [df.columns.get_loc(column) for column in lag_columns]
+        if lag_positions != sorted(lag_positions):
+            raise ValueError(f"Lag columns are not in the required order: {lag_columns}")
+
 
 def build_period_dataset(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, dict[str, int]], int, int, int, int]:
     annual = load_input_data(input_path)
@@ -568,8 +616,12 @@ def build_period_dataset(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, p
     nominal_sales_wide = build_sales_wide(annual, "sales", "nominal")
     real_outcomes, real_blocked_log_counts = build_period_outcomes_from_wide(real_sales_wide, "real", "rgrowth", "r")
     nominal_outcomes, nominal_blocked_log_counts = build_period_outcomes_from_wide(nominal_sales_wide, "nominal", "ngrowth", "n")
-    real_lags = build_lagged_growth(real_outcomes, "rgrowth")
-    nominal_lags = build_lagged_growth(nominal_outcomes, "ngrowth")
+    real_lags = build_lagged_growth(
+        real_outcomes, real_sales_wide, "real", "rgrowth"
+    )
+    nominal_lags = build_lagged_growth(
+        nominal_outcomes, nominal_sales_wide, "nominal", "ngrowth"
+    )
     real_trajectory = build_trajectory_descriptors(real_outcomes, "rgrowth", "r")
     nominal_trajectory = build_trajectory_descriptors(nominal_outcomes, "ngrowth", "n")
     sgrowth_nr, performance_thresholds, valid_real_growth_count, valid_nominal_growth_count, collapse_count = build_sgrowth_nr(annual)
@@ -650,11 +702,25 @@ def print_build_summary(
     print(f"Unique firms: {df[KEY_COLUMN].nunique():,}")
     print(f"One row per nip: {not df.duplicated(KEY_COLUMN).any()}")
     print(f"Duplicate columns present: {df.columns.duplicated().any()}")
-    print(f"sector_en present in output: {'sector_en' in df.columns}")
-    if "sector_en" in df.columns:
-        print(f"Unique sector_en values: {sorted(df['sector_en'].dropna().astype(str).unique().tolist())}")
+    print(
+        "Unavailable source descriptors omitted: "
+        "['business_start_year', 'gpw', 'incorporation_year_krs', "
+        "'sector', 'sector_en']"
+    )
     print(f"Count of firms with has_complete_rtrajectory = 1: {int(df['has_complete_rtrajectory'].sum()):,}")
     print(f"Count of firms with has_complete_ntrajectory = 1: {int(df['has_complete_ntrajectory'].sum()):,}")
+    print(
+        "2018 sales is present and is used only for P1 lag growth "
+        "(lag_*_P1 = 2018 -> 2019)."
+    )
+    print(
+        "2019 remains the start year for main growth, trajectories, "
+        "SGrowth_NR, and P1 start covariates."
+    )
+    print(
+        "Main periods unchanged: "
+        "P1=2019->2020, P2=2020->2022, P3=2022->2024."
+    )
     print("Old ambiguous columns present:")
     legacy_columns_present = [column for column in OLD_AMBIGUOUS_COLUMNS if column in df.columns]
     print(legacy_columns_present if legacy_columns_present else "None")
@@ -714,6 +780,10 @@ def print_build_summary(
     for column in NOMINAL_AVAILABILITY_COLUMNS:
         print(f"{column}: {int(df[column].sum()):,}")
     print("Missing counts:")
+    print("Real lag growth missing counts:")
+    print_missing_counts(df, REAL_LAG_COLUMNS)
+    print("Nominal lag growth missing counts:")
+    print_missing_counts(df, NOMINAL_LAG_COLUMNS)
     print("Real growth missing counts:")
     print_missing_counts(df, REAL_GROWTH_COLUMNS + REAL_GROWTH_LOG_COLUMNS + REAL_GROWTH_LOG_ANN_COLUMNS)
     print("Nominal growth missing counts:")

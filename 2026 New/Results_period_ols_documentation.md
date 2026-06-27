@@ -8,6 +8,12 @@ It estimates scenario-based OLS models from `Data_period_2019-2024.parquet` and 
 
 - `Results_period_ols_scenarios.xlsx`
 
+Current script roles:
+
+- Main OLS scenario runner: `run_period_ols_scenarios.py`
+- Descriptive trajectory runner: `run_trajectory_analysis.py`
+- Shared analytical definitions: `analysis_config.py`
+
 The older single-sample workbook path is no longer the primary documented workflow. Current interpretation should use the scenario workbook.
 
 ## Input

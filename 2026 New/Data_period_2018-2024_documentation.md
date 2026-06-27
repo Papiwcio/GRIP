@@ -1,8 +1,8 @@
-# Data_period_2019-2024
+# Data_period_2018-2024
 
 ## Purpose
 
-`Data_period_2019-2024.parquet` is the canonical firm-level period dataset derived from `Data_core_2019-2024.parquet`.
+`Data_period_2018-2024.parquet` is the canonical firm-level period dataset derived from `Data_core_2018-2024.parquet`.
 
 It is a single master dataset with two parallel measurement layers:
 
@@ -21,6 +21,8 @@ One row per firm (`nip`).
 - `P2 = 2020 -> 2022`
 - `P3 = 2022 -> 2024`
 
+The additional `2018 -> 2019` interval is used only to calculate P1 lag-growth variables. It is not an analytical period and does not redefine P1.
+
 ## Variable blocks
 
 ### Identifiers
@@ -34,13 +36,10 @@ One row per firm (`nip`).
 
 - `pkd`
 - `pkd_description`
-- `sector`
-- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
 - `owner_num`
-- `gpw`
 - `city`
 - `legal_form`
 
@@ -58,11 +57,14 @@ One row per firm (`nip`).
 
 ### Real lagged outcomes
 
+- `lag_rgrowth_P1`
+- `lag_rgrowth_log_P1`
+- `lag_rgrowth_log_ann_P1`
 - `lag_rgrowth_P2`
-- `lag_rgrowth_P3`
 - `lag_rgrowth_log_P2`
-- `lag_rgrowth_log_P3`
 - `lag_rgrowth_log_ann_P2`
+- `lag_rgrowth_P3`
+- `lag_rgrowth_log_P3`
 - `lag_rgrowth_log_ann_P3`
 
 ### Nominal growth outcomes
@@ -79,11 +81,14 @@ One row per firm (`nip`).
 
 ### Nominal lagged outcomes
 
+- `lag_ngrowth_P1`
+- `lag_ngrowth_log_P1`
+- `lag_ngrowth_log_ann_P1`
 - `lag_ngrowth_P2`
-- `lag_ngrowth_P3`
 - `lag_ngrowth_log_P2`
-- `lag_ngrowth_log_P3`
 - `lag_ngrowth_log_ann_P2`
+- `lag_ngrowth_P3`
+- `lag_ngrowth_log_P3`
 - `lag_ngrowth_log_ann_P3`
 
 ### Start-of-period covariates
@@ -237,23 +242,29 @@ These annualised log variables are the regression-ready dependent-variable famil
 
 ### Real lag variables
 
+- `lag_rgrowth_P1 = sales_real_2019 / sales_real_2018 - 1`
 - `lag_rgrowth_P2 = rgrowth_P1`
 - `lag_rgrowth_P3 = rgrowth_P2`
+- `lag_rgrowth_log_P1 = ln(sales_real_2019) - ln(sales_real_2018)`
 - `lag_rgrowth_log_P2 = rgrowth_log_P1`
 - `lag_rgrowth_log_P3 = rgrowth_log_P2`
+- `lag_rgrowth_log_ann_P1 = lag_rgrowth_log_P1 / 1`
 - `lag_rgrowth_log_ann_P2 = rgrowth_log_ann_P1`
 - `lag_rgrowth_log_ann_P3 = rgrowth_log_ann_P2`
 
 ### Nominal lag variables
 
+- `lag_ngrowth_P1 = sales_2019 / sales_2018 - 1`
 - `lag_ngrowth_P2 = ngrowth_P1`
 - `lag_ngrowth_P3 = ngrowth_P2`
+- `lag_ngrowth_log_P1 = ln(sales_2019) - ln(sales_2018)`
 - `lag_ngrowth_log_P2 = ngrowth_log_P1`
 - `lag_ngrowth_log_P3 = ngrowth_log_P2`
+- `lag_ngrowth_log_ann_P1 = lag_ngrowth_log_P1 / 1`
 - `lag_ngrowth_log_ann_P2 = ngrowth_log_ann_P1`
 - `lag_ngrowth_log_ann_P3 = ngrowth_log_ann_P2`
 
-No additional lag structures are included.
+For every lag variable, both endpoint sales values must be present and strictly positive. Otherwise the lag variable is `NaN`. No additional lag structures are included.
 
 ### Availability flags
 
@@ -425,17 +436,16 @@ The following firm-level descriptors are collapsed to one row per `nip` by takin
 - `in_rank_2019`
 - `pkd`
 - `pkd_description`
-- `sector`
-- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
 - `owner_num`
-- `gpw`
 - `city`
 - `legal_form`
 
-If optional columns such as `gpw`, `city`, or `legal_form` are absent in the source, they are skipped gracefully.
+Descriptors are collapsed using observations from 2019 onward; 2018 is not used as a descriptor source.
+
+The current annual source does not contain `business_start_year`, `gpw`, `incorporation_year_krs`, `sector`, or `sector_en`. They are omitted from this dataset without substitution.
 
 ## Missing-data and denominator handling
 
@@ -458,8 +468,10 @@ Regression scripts must explicitly choose the real or nominal dependent-variable
 
 ## Build notes
 
-- the only source file is `Data_core_2019-2024.parquet`
+- the only source file is `Data_core_2018-2024.parquet`
 - the output contains exactly one row per firm
+- 2018 sales is used only for the six P1 lag-growth variables
+- main growth, trajectories, `SGrowth_NR`, performance classifications, and P1 start covariates continue to begin in 2019
 - real and nominal growth systems are built in one deterministic master pipeline
 - trajectory descriptors are descriptive outputs and not regression results
 - no regressions or model outputs are included in this dataset
@@ -467,6 +479,6 @@ Regression scripts must explicitly choose the real or nominal dependent-variable
 ## Last Updated For
 
 - Script: `build_period_dataset.py`
-- Output file: `Data_period_2019-2024.parquet` and `Data_period_2019-2024.xlsx`
-- Main change covered: real/nominal period schema, SGrowth_NR diagnostics, 2019-2024 FULL annualised log-growth variables, start covariate logic, and regression handoff notes
-- Date: 2026-05-08
+- Output file: `Data_period_2018-2024.parquet` and `Data_period_2018-2024.xlsx`
+- Main change covered: 2018 sales support for P1 lag growth, alignment with currently available source descriptors, and preservation of 2019-2024 main outcomes, trajectories, `SGrowth_NR`, and start covariates
+- Date: 2026-06-27
