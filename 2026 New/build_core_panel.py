@@ -26,6 +26,23 @@ EXPECTED_YEARS = {2018, 2019, 2020, 2021, 2022, 2023, 2024}
 P1_LAG_SOURCE_YEAR = 2018
 MAIN_ANALYSIS_START_YEAR = 2019
 
+SECTOR_EN_MAP = {
+    "budownictwo": "construction",
+    "chemia": "chemicals",
+    "energetyka": "energy",
+    "górnictwo i hutnictwo": "mining and metallurgy",
+    "handel detaliczny": "retail trade",
+    "handel hurtowy": "wholesale trade",
+    "media, telekomunkacja, it": "media, telecommunications, and IT",
+    "motoryzacja": "automotive",
+    "ochrona zdrowia i farmacja": "health and pharma",
+    "paliwa": "fuels",
+    "produkcja": "production",
+    "transport": "transport",
+    "usługi": "services",
+    "żywność": "food",
+}
+
 KEY_COLUMNS = ["nip", "year"]
 
 STATIC_COLUMNS = [
@@ -34,6 +51,8 @@ STATIC_COLUMNS = [
     "in_rank_2019",
     "pkd",
     "pkd_description",
+    "sector",
+    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
@@ -100,11 +119,23 @@ DROP_COLUMNS = [
     "rank_2024",
 ]
 
+IGNORED_INPUT_COLUMNS = ["gpw", "przychody"]
+
 CORE_COLUMNS = KEY_COLUMNS + STATIC_COLUMNS + ANNUAL_COLUMNS + DERIVED_COLUMNS
 INPUT_REQUIRED_COLUMNS = [
     column
     for column in KEY_COLUMNS + STATIC_COLUMNS + ANNUAL_COLUMNS
-    if column not in {"in_rank_2019", "owner", "owner_num", "manufacturing"}
+    if column
+    not in {
+        "in_rank_2019",
+        "owner",
+        "owner_num",
+        "sector_en",
+        "manufacturing",
+        "income_tax",
+        "zobowiazania_dlugoterminowe",
+        "zobowiazania_krotkoterminow",
+    }
 ] + DROP_COLUMNS
 
 INTEGER_COLUMNS = ["year", "rank_2019", "in_rank_2019", "regon", "krs", "pkd", "owner_type"]
@@ -129,16 +160,37 @@ FLOAT_COLUMNS = [
     "total_liabilities",
 ]
 
-STRING_COLUMNS = ["nip", "company", "city", "legal_form", "pkd_description", "sj"]
+STRING_COLUMNS = [
+    "nip",
+    "company",
+    "city",
+    "legal_form",
+    "pkd_description",
+    "sector",
+    "sector_en",
+    "sj",
+]
 
 UNAVAILABLE_SOURCE_COLUMNS = [
     "business_start_year",
-    "gpw",
     "incorporation_year_krs",
-    "sector",
-    "sector_en",
+    "income_tax",
+    "zobowiazania_dlugoterminowe",
+    "zobowiazania_krotkoterminow",
 ]
 
+STABLE_DESCRIPTOR_SOURCE_COLUMNS = [
+    "company",
+    "rank_2019",
+    "pkd",
+    "pkd_description",
+    "owner_type",
+    "city",
+    "regon",
+    "krs",
+    "legal_form",
+    "sj",
+]
 
 def load_input_data(path: Path) -> pd.DataFrame:
     if not path.exists():
@@ -146,11 +198,45 @@ def load_input_data(path: Path) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
+def first_non_missing(series: pd.Series):
+    non_missing = series.dropna()
+    if non_missing.empty:
+        return pd.NA
+    return non_missing.iloc[0]
+
+
+def fill_stable_descriptors(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    source_rows = df.loc[df["year"].between(MAIN_ANALYSIS_START_YEAR, 2024)]
+    for column in STABLE_DESCRIPTOR_SOURCE_COLUMNS:
+        if column not in df.columns:
+            continue
+        values_by_nip = source_rows.groupby("nip", dropna=False)[column].agg(first_non_missing)
+        df[column] = df[column].fillna(df["nip"].map(values_by_nip))
+
+    return df
+
+
 def validate_expected_columns(df: pd.DataFrame) -> None:
     expected = set(INPUT_REQUIRED_COLUMNS)
     missing = sorted(expected.difference(df.columns))
     if missing:
         raise ValueError(f"Input file is missing expected columns: {missing}")
+
+
+def add_unavailable_canonical_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for column in UNAVAILABLE_SOURCE_COLUMNS:
+        if column in CORE_COLUMNS and column not in df.columns:
+            df[column] = pd.NA
+    return df
+
+
+def fill_sales_from_source_revenue(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    df = df.copy()
+    fill_mask = df["sales"].isna() & df["przychody"].notna()
+    df.loc[fill_mask, "sales"] = df.loc[fill_mask, "przychody"]
+    return df, int(fill_mask.sum())
 
 
 def normalize_strings(df: pd.DataFrame) -> pd.DataFrame:
@@ -187,8 +273,24 @@ def safe_ratio(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     return numerator.divide(denominator)
 
 
-def build_derived_variables(df: pd.DataFrame) -> pd.DataFrame:
+def create_sector_en(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df = df.copy()
+    sector_clean = df["sector"].astype("string").str.strip()
+    sector_key = sector_clean.str.lower()
+    df["sector"] = sector_clean
+    df["sector_en"] = sector_key.map(SECTOR_EN_MAP).astype("string")
+    unmatched = sorted(
+        sector_clean.loc[sector_clean.notna() & df["sector_en"].isna()]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+    return df, unmatched
+
+
+def build_derived_variables(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    df = df.copy()
+    df, unmatched_sector_values = create_sector_en(df)
 
     owner_type_string = (
         pd.to_numeric(df["owner_type"], errors="coerce")
@@ -246,11 +348,13 @@ def build_derived_variables(df: pd.DataFrame) -> pd.DataFrame:
     df["sales_real_growth_yoy"] = np.where(lag_sales_real > 0, df["sales_real"] / lag_sales_real - 1, np.nan)
     df["sales_log_growth_yoy"] = df["ln_sales"] - lag_ln_sales
 
-    return df
+    return df, unmatched_sector_values
 
 
 def select_core_columns(df: pd.DataFrame) -> pd.DataFrame:
-    extra_columns = sorted(set(df.columns).difference(CORE_COLUMNS + DROP_COLUMNS))
+    extra_columns = sorted(
+        set(df.columns).difference(CORE_COLUMNS + DROP_COLUMNS + IGNORED_INPUT_COLUMNS)
+    )
     if extra_columns:
         raise ValueError(f"Unexpected columns found in input: {extra_columns}")
     return df.loc[:, CORE_COLUMNS].copy()
@@ -303,6 +407,10 @@ def validate_output(df: pd.DataFrame) -> None:
         raise ValueError("Output has no observed 2018 sales values for P1 lag growth.")
     if df.loc[rows_2018, "price_index"].isna().any():
         raise ValueError("Output has missing 2018 price_index values.")
+    if "sector" not in df.columns or "sector_en" not in df.columns:
+        raise ValueError("Output must contain sector and sector_en.")
+    if df["sector_en"].dropna().eq("production").sum() == 0:
+        raise ValueError("Output sector_en has no production observations.")
 
 
 def write_outputs(df: pd.DataFrame, parquet_path: Path, xlsx_path: Path) -> None:
@@ -314,9 +422,12 @@ def build_core_panel(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, dict]
     df = load_input_data(input_path)
     input_row_count = len(df)
     validate_expected_columns(df)
+    df = add_unavailable_canonical_columns(df)
+    df, sales_filled_from_przychody = fill_sales_from_source_revenue(df)
+    df = fill_stable_descriptors(df)
     df = add_rank_indicators(df)
     df = coerce_numeric_types(df)
-    df = build_derived_variables(df)
+    df, unmatched_sector_values = build_derived_variables(df)
     df = select_core_columns(df)
     df = normalize_strings(df)
     df = drop_invalid_keys(df)
@@ -328,6 +439,14 @@ def build_core_panel(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, dict]
         "output_row_count": len(df),
         "unique_firms": df["nip"].nunique(),
         "unavailable_source_columns": UNAVAILABLE_SOURCE_COLUMNS,
+        "sales_filled_from_przychody": sales_filled_from_przychody,
+        "firms_without_sector": int(
+            df.groupby("nip")["sector"].apply(lambda series: series.notna().any()).eq(False).sum()
+        ),
+        "sector_missing_rate": float(df["sector"].isna().mean()),
+        "sector_en_missing_rate": float(df["sector_en"].isna().mean()),
+        "sector_en_values": sorted(df["sector_en"].dropna().astype(str).unique().tolist()),
+        "unmatched_sector_values": unmatched_sector_values,
         "duplicate_firm_year_count": int(df.duplicated(KEY_COLUMNS).sum()),
         "output_years": sorted(df["year"].dropna().astype(int).unique().tolist()),
         "sales_2018_present_count": int(
@@ -365,7 +484,17 @@ def print_build_summary(df: pd.DataFrame, metadata: dict) -> None:
         "Columns omitted because they are unavailable in the current source: "
         f"{metadata['unavailable_source_columns']}"
     )
-    print("Sector mapping not created because the source has no sector column.")
+    print(
+        "Missing sales values filled from source przychody: "
+        f"{metadata['sales_filled_from_przychody']:,}"
+    )
+    print("sector is taken directly from Data_panel_2018-2024.parquet.")
+    print(f"Firms without an available sector descriptor: {metadata['firms_without_sector']:,}")
+    print(f"sector missing rate: {metadata['sector_missing_rate']:.6f}")
+    print(f"sector_en missing rate: {metadata['sector_en_missing_rate']:.6f}")
+    print(f"sector_en values: {metadata['sector_en_values']}")
+    print(f"Unmatched sector values: {metadata['unmatched_sector_values']}")
+    print(f"sector_en present and used as categorical control: {'sector_en' in df.columns}")
     print("Final columns:")
     for column in df.columns:
         print(column)

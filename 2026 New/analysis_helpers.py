@@ -1,6 +1,9 @@
 """
 Shared utility functions for the GRIP 2019-2024 resilience analysis.
 
+The supporting period dataset covers 2018-2024; 2018 is used only for P1 lag
+growth and does not change the main 2019-2024 analytical periods.
+
 This file contains reusable helper functions for formatting, validation,
 sample counting, safe statistics and workbook writing utilities.
 

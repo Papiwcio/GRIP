@@ -6,7 +6,22 @@ from typing import Any
 import pandas as pd
 import statsmodels.api as sm
 
-from analysis_config import PERIODS, SAMPLE_ORDER, SCENARIO_LABELS, VARIABLE_LABELS, build_sample_mask
+from analysis_config import (
+    CATEGORICAL_METADATA,
+    DEFAULT_REGRESSOR_RULES,
+    INTERACTION_METADATA,
+    LAG_GROWTH_METADATA,
+    OWNER_METADATA,
+    PERIODS,
+    REGRESSOR_METADATA,
+    SAMPLE_ORDER,
+    SCENARIO_LABELS,
+    VARIABLE_LABELS,
+    build_sample_mask,
+    get_period_model_settings,
+    get_scenario_definitions,
+    validate_scenario_alignment,
+)
 from analysis_helpers import build_shared_sample_counts, safe_numeric
 
 
@@ -17,139 +32,48 @@ class StandardScaler:
         stds = frame.std(axis=0, ddof=0).replace(0, 1.0)
         return ((frame - means) / stds).to_numpy()
 
-
-DEFAULT_REGRESSOR_RULES = {
-    "column_pattern": "{base_name}_start_{period}",
-    "standardise": True,
-}
-
-REGRESSOR_METADATA = {
-    "ln_sales": {
-        "interpretation": "firm size",
-    },
-    "profit_margin": {
-        "interpretation": "profitability",
-    },
-    "export_ratio": {
-        "interpretation": "internationalisation intensity",
-    },
-    "asset_turnover": {
-        "interpretation": "asset efficiency",
-    },
-    "capital_ratio": {
-        "interpretation": "equity financing strength",
-    },
-    "sales_per_employee": {
-        "interpretation": "labour productivity",
-    },
-}
-
-CATEGORICAL_METADATA = {
-    "sector_en": {
-        "reference": "production",
-        "display_prefix": "sector: ",
-        "interpretation_template": "sector dummy relative to production reference category",
-    }
-}
-
-OWNER_METADATA = {
-    "owner_num": {
-        "display_name": "Foreign",
-        "interpretation": "foreign ownership dummy; Domestic = 0 reference group",
-        "standardise": False,
-    }
-}
-
-LAG_GROWTH_METADATA = {
-    "display_name": "lag_growth_log_ann",
-    "interpretation": "prior-period growth persistence",
-    "standardise": True,
-}
-
-INTERACTION_METADATA = {
-    "foreign_x_size_ratio": {
-        "variables": ["export_ratio","ln_sales"],
-        "display_name": "export_ratio × ln_sales",
-        "interpretation": "interaction between export intensity and company size",
-        "standardise": True,
-        "include": True,
-    }
-}
-
-# Researcher control panel
+# Shared researcher control panel
 #
 # To add a standard numeric regressor:
-# - add only its name to CONFIG["base_regressors"], for example "roa"
+# - add only its name to PERIOD_MODEL_SETTINGS["base_regressors"] in
+#   analysis_config.py, for example "roa"
 # The default column rule then creates roa_start_P1, roa_start_P2, roa_start_P3 automatically.
 #
 # Optional numeric labels, interpretations, standardisation rules, or column-pattern
 # overrides go in REGRESSOR_METADATA.
 #
-# Categorical controls are listed by column name in CONFIG["categorical_controls"].
-# Their reference categories and labels must be defined in CATEGORICAL_METADATA.
+# Categorical controls and their metadata are defined in analysis_config.py.
 #
-# Ownership is controlled by include_owner and owner_column.
+# Ownership is controlled by shared include_owner and owner_column settings.
 # Owner labels and standardisation rules go in OWNER_METADATA.
 #
-# Lag growth is controlled by include_lag_growth and lag_growth_periods.
+# Lag growth is controlled by shared include_lag_growth and lag_growth_periods.
 # Lag-growth labels and standardisation rules go in LAG_GROWTH_METADATA.
 #
-# Interactions are optional and live only in INTERACTION_METADATA. Set
+# Interactions are optional and live in analysis_config.INTERACTION_METADATA. Set
 # include=True to activate an interaction, include=False to ignore it, or use
 # INTERACTION_METADATA = {} for no interactions. Example: Foreign x
 # export_ratio uses variables ["owner_num", "export_ratio"] and is generated
 # automatically by period. Categorical interactions are not supported yet.
 #
-# To switch real vs nominal growth:
-# - set growth_mode to "real" or "nominal"
+# To switch real vs nominal growth, edit the shared growth_mode setting in
+# analysis_config.py.
 # The dependent variables and lag growth controls are generated from this setting.
 #
-# To change the sample:
-# - edit base_sample_filter using pandas query syntax
-# The complete-growth requirement is added automatically from growth_mode.
+# Scenario samples come from analysis_config.get_scenario_definitions().
 CONFIG = {
     "analysis_name": "period_ols_scenarios",
-    "input_file": "Data_period_2019-2024.parquet",
+    "input_file": "Data_period_2018-2024.parquet",
     "output_file": "Results_period_ols_scenarios.xlsx",
     "sample_name": "ScenarioSamples",
     "base_sample_filter": "True",
-    "growth_mode": "nominal",  # "real" or "nominal"
-    "periods": [*PERIODS, "FULL"],
-    "base_regressors": [
-        "ln_sales",
-        "profit_margin",
-        "export_ratio",
-        "asset_turnover",
-        "capital_ratio",
-        "sales_per_employee",
-    ],
-    "include_owner": True,
-    "owner_column": "owner_num",
-    "include_lag_growth": True,
-    "lag_growth_periods": ["P2", "P3"],
-    "categorical_controls": [
-        "sector_en",
-    ],
-    "winsorise_dependent": True,
-    "winsor_lower": 0.01,
-    "winsor_upper": 0.99,
-    "standardised_models": True,
-    "standardise_dependent": True,
-    "covariance_type": "nonrobust",
-    "model_variants": [
-        {"suffix": "baseline", "model_family": "raw", "winsorised": False, "standardised_model": False},
-        {"suffix": "baseline_std", "model_family": "std", "winsorised": False, "standardised_model": True},
-        {"suffix": "winsor", "model_family": "raw_winsor", "winsorised": True, "standardised_model": False},
-        {"suffix": "winsor_std", "model_family": "std_winsor", "winsorised": True, "standardised_model": True},
-    ],
+    **get_period_model_settings(),
 }
 
 
 SCENARIOS = {
-    "ALL": None,
-    "RANK2019": None,
-    "MANUFACTURING": "manufacturing == 1",
-    "RANK2019_MANUFACTURING": None,
+    name: metadata["filter"]
+    for name, metadata in get_scenario_definitions().items()
 }
 
 SHARED_SAMPLE_SCENARIOS = {
@@ -165,8 +89,6 @@ OUTPUT_SHEETS = [
     "README",
     "Compare_Main",
     "Compare_Raw",
-    "Descriptive_Stats",
-    "Correlation_Long",
     "Model_Summary_Long",
     "AUDIT_AND_TECHNICAL_TABS",
     "Diagnostics_Long",
@@ -186,6 +108,24 @@ COMPARISON_VARIANT_DISPLAY = {
 COMPARISON_VARIANT_ORDER = ["baseline", "winsor", "baseline_std", "winsor_std"]
 COMPARE_MAIN_VARIANTS = ["baseline_std", "winsor_std"]
 COMPARE_RAW_VARIANTS = ["baseline", "winsor"]
+
+CORRELATION_VARIANTS = {
+    "baseline": {"winsorised": False, "source_variant": "baseline"},
+    "winsor": {"winsorised": True, "source_variant": "winsor"},
+}
+
+CORRELATION_SHEET_NAMES = {
+    "Correlation_MAIN_FULL_baseline": "Correlation_MAIN_FULL_baseline",
+    "Correlation_MAIN_FULL_winsor": "Correlation_MAIN_FULL_winsor",
+    "Correlation_With_DV_baseline": "Correlation_With_DV_baseline",
+    "Correlation_With_DV_winsor": "Correlation_With_DV_winsor",
+    # Excel worksheet names cannot exceed 31 characters. The full logical
+    # output names are retained in the README and table columns.
+    "Correlation_Predictor_Risk_baseline": "Corr_Predictor_Risk_baseline",
+    "Correlation_Predictor_Risk_winsor": "Corr_Predictor_Risk_winsor",
+    "Correlation_Stability_Scenarios_baseline": "Corr_Stability_Scen_baseline",
+    "Correlation_Stability_Scenarios_winsor": "Corr_Stability_Scen_winsor",
+}
 
 SUMMARY_ROWS = ["N", "R-squared", "Adjusted R-squared"]
 
@@ -714,7 +654,8 @@ def resolve_interaction_variable(config: dict[str, Any], variable_name: str, per
 
 
 def build_interaction_column_name(interaction_name: str, period: str) -> str:
-    return f"{interaction_name}_{period}"
+    regressor_period = get_regressor_period_for_model(period)
+    return f"{interaction_name}_start_{regressor_period}"
 
 
 def get_interaction_column_names(config: dict[str, Any]) -> set[str]:
@@ -745,6 +686,7 @@ def add_interaction_columns(
     if not active_interactions:
         return output
 
+    constructed_columns = set()
     for period in models:
         regressor_period = get_regressor_period_for_model(period)
         for interaction in active_interactions:
@@ -753,10 +695,63 @@ def add_interaction_columns(
                 for variable_name in interaction["variables"]
             ]
             interaction_column = build_interaction_column_name(interaction["name"], period)
+            if interaction_column in constructed_columns:
+                continue
             left = pd.to_numeric(output[source_columns[0]], errors="coerce")
             right = pd.to_numeric(output[source_columns[1]], errors="coerce")
             output[interaction_column] = left * right
+            constructed_columns.add(interaction_column)
     return output
+
+
+def validate_full_interaction_uses_p1_start(
+    config: dict[str, Any],
+    models: dict[str, dict[str, Any]],
+    filtered_df: pd.DataFrame | None = None,
+) -> bool:
+    if "P1" not in models or "FULL" not in models:
+        return True
+
+    for interaction in get_active_interactions():
+        p1_column = build_interaction_column_name(interaction["name"], "P1")
+        full_column = build_interaction_column_name(interaction["name"], "FULL")
+        if p1_column != full_column:
+            raise ValueError(
+                "FULL interaction naming is not aligned with P1 starting covariates: "
+                f"P1={p1_column}, FULL={full_column}."
+            )
+        if p1_column not in models["P1"]["regressors"]:
+            raise ValueError(
+                f"P1 model is missing its starting-point interaction: {p1_column}."
+            )
+        if full_column not in models["FULL"]["regressors"]:
+            raise ValueError(
+                f"FULL model is missing the P1 starting-point interaction: {full_column}."
+            )
+
+        if filtered_df is not None:
+            if p1_column not in filtered_df.columns:
+                raise ValueError(
+                    f"Constructed interaction column is missing: {p1_column}."
+                )
+            source_columns = [
+                resolve_interaction_variable(config, variable_name, "P1")
+                for variable_name in interaction["variables"]
+            ]
+            expected = (
+                pd.to_numeric(filtered_df[source_columns[0]], errors="coerce")
+                * pd.to_numeric(filtered_df[source_columns[1]], errors="coerce")
+            ).rename(p1_column)
+            actual = pd.to_numeric(
+                filtered_df[p1_column],
+                errors="coerce",
+            ).rename(p1_column)
+            if not actual.equals(expected):
+                raise ValueError(
+                    f"Constructed interaction {p1_column} does not equal "
+                    f"{source_columns[0]} × {source_columns[1]}."
+                )
+    return True
 
 
 def build_models(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -810,6 +805,13 @@ def get_required_columns(config: dict[str, Any], models: dict[str, dict[str, Any
 
 
 def validate_input_columns(df: pd.DataFrame, config: dict[str, Any], models: dict[str, dict[str, Any]]) -> None:
+    if config["include_lag_growth"] and "P1" in config["lag_growth_periods"]:
+        p1_lag_column = lag_growth_col(config, "P1")
+        if p1_lag_column not in df.columns:
+            raise ValueError(
+                f"Input file is missing required P1 lag-growth column: {p1_lag_column}. "
+                "Rebuild Data_period_2018-2024 with the 2018 sales extension."
+            )
     missing = sorted(set(get_required_columns(config, models)).difference(df.columns))
     if missing:
         raise ValueError(
@@ -913,6 +915,9 @@ def build_variable_registry(
     for order, interaction in enumerate(get_active_interactions(), start=1500):
         for period in config["periods"]:
             column = build_interaction_column_name(interaction["name"], period)
+            if column in registry:
+                continue
+            regressor_period = get_regressor_period_for_model(period)
             registry[column] = make_registry_entry(
                 display_name=interaction["display_name"],
                 interpretation=interaction["interpretation"],
@@ -920,7 +925,7 @@ def build_variable_registry(
                 variable_type="interaction",
                 source="interaction",
                 order=order,
-                period=period,
+                period=regressor_period,
             )
 
     if config["include_lag_growth"]:
@@ -1740,6 +1745,7 @@ def run_period_ols(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
     validate_input_columns(input_df, config, models)
     filtered_df = apply_sample_filter(input_df, config)
     filtered_df = add_interaction_columns(filtered_df, config, models)
+    validate_full_interaction_uses_p1_start(config, models, filtered_df)
     validate_model_columns_after_filter(filtered_df, config, models)
     categorical_levels = get_categorical_levels(filtered_df, config)
 
@@ -2047,6 +2053,11 @@ def run_models_for_scenario(
         validate_input_columns(scenario_df, scenario_config, models)
         filtered_df = apply_sample_filter(scenario_df, scenario_config)
         filtered_df = add_interaction_columns(filtered_df, scenario_config, models)
+        validate_full_interaction_uses_p1_start(
+            scenario_config,
+            models,
+            filtered_df,
+        )
         validate_model_columns_after_filter(filtered_df, scenario_config, models)
         categorical_levels = get_categorical_levels(filtered_df, scenario_config)
         variable_registry = add_dependent_variables_to_registry(build_variable_registry(scenario_config, models, categorical_levels))
@@ -2266,6 +2277,10 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Scenario definitions", scenario_text),
         ("Model variants", variant_text),
         ("Dependent variable logic", "P1/P2/P3 use annualised log growth by period; FULL uses 2019-2024 annualised log growth."),
+        ("2018 role", "2018 is used only to calculate P1 lag growth; it is not an analytical outcome period."),
+        ("Lag growth logic", "P1 uses 2018-2019 lag growth; P2 and P3 retain their prior-period lags; FULL has no lag growth."),
+        ("Main analysis window", "Dependent variables, trajectories, SGrowth_NR, and FULL growth remain based on 2019-2024."),
+        ("Sector controls", "sector_en is required and included as a categorical control with production as the reference category."),
         ("Winsorisation", f"{config['winsorise_dependent']} with bounds {config['winsor_lower']} and {config['winsor_upper']} for winsor variants."),
         ("Standardisation", f"standardised_models={config['standardised_models']}; standardise_dependent={config['standardise_dependent']}."),
         ("Significance stars", "*** p<0.01; ** p<0.05; * p<0.10."),
@@ -2434,6 +2449,114 @@ def numeric_variables_for_correlations(model_spec: dict[str, Any], variable_regi
     ]
 
 
+def correlation_variant_frame(
+    estimation_df: pd.DataFrame,
+    model_spec: dict[str, Any],
+    variant_name: str,
+    config: dict[str, Any],
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Return the exact raw-scale data used by a correlation variant.
+
+    Standardised variants are deliberately not constructed here: Pearson
+    correlations are invariant to non-degenerate linear standardisation.
+    Winsor variants replace only the dependent variable because the model
+    specification winsorises only the dependent variable.
+    """
+    if variant_name not in CORRELATION_VARIANTS:
+        raise ValueError(f"Unknown correlation variant: {variant_name}")
+
+    dependent = model_spec["dependent"]
+    output = estimation_df.copy()
+    effective_names = {column: column for column in output.columns}
+    if CORRELATION_VARIANTS[variant_name]["winsorised"]:
+        output[dependent], _, _, _ = winsorize_series(
+            safe_numeric(output[dependent]),
+            config["winsor_lower"],
+            config["winsor_upper"],
+        )
+        effective_names[dependent] = f"{dependent}_w"
+    return output, effective_names
+
+
+def build_winsorisation_impact(
+    scenario_results: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+    models: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    columns = [
+        "scenario",
+        "period",
+        "model_variant",
+        "variable",
+        "n_before",
+        "n_after",
+        "n_changed",
+        "min_before",
+        "min_after",
+        "p01_before",
+        "p01_after",
+        "p05_before",
+        "p05_after",
+        "median_before",
+        "median_after",
+        "p95_before",
+        "p95_after",
+        "p99_before",
+        "p99_after",
+        "max_before",
+        "max_after",
+    ]
+    rows = []
+    quantiles = {
+        "min": 0.00,
+        "p01": 0.01,
+        "p05": 0.05,
+        "median": 0.50,
+        "p95": 0.95,
+        "p99": 0.99,
+        "max": 1.00,
+    }
+
+    for scenario_name, result in scenario_results.items():
+        filtered_df = result.get("filtered_df", pd.DataFrame())
+        if filtered_df.empty:
+            continue
+        scenario_config = dict(config)
+        scenario_config["sample_name"] = SHARED_SAMPLE_SCENARIOS.get(scenario_name, scenario_name)
+        scenario_config["base_sample_filter"] = "True"
+
+        for period, model_spec in models.items():
+            estimation_df = get_estimation_sample(filtered_df, scenario_config, model_spec)
+            if not scenario_config["winsorise_dependent"]:
+                continue
+            variant_frame, _ = correlation_variant_frame(
+                estimation_df,
+                model_spec,
+                "winsor",
+                scenario_config,
+            )
+            variable = model_spec["dependent"]
+            before = safe_numeric(estimation_df[variable])
+            after = safe_numeric(variant_frame[variable])
+            both_present = before.notna() & after.notna()
+            changed = both_present & before.ne(after)
+            row = {
+                "scenario": scenario_name,
+                "period": period,
+                "model_variant": "winsor",
+                "variable": variable,
+                "n_before": int(before.notna().sum()),
+                "n_after": int(after.notna().sum()),
+                "n_changed": int(changed.sum()),
+            }
+            for label, quantile in quantiles.items():
+                row[f"{label}_before"] = before.quantile(quantile)
+                row[f"{label}_after"] = after.quantile(quantile)
+            rows.append(row)
+
+    return pd.DataFrame(rows, columns=columns)
+
+
 def build_descriptive_stats(
     scenario_results: dict[str, dict[str, Any]],
     config: dict[str, Any],
@@ -2477,6 +2600,70 @@ def build_descriptive_stats(
     return pd.DataFrame(rows)
 
 
+def build_missingness_table(
+    scenario_results: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+    models: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    rows = []
+    categorical_columns = set(get_categorical_columns(config))
+    for scenario_name, result in scenario_results.items():
+        filtered_df = result.get("filtered_df", pd.DataFrame())
+        variable_registry = result.get("variable_registry", {})
+        if filtered_df.empty:
+            continue
+        scenario_config = dict(config)
+        scenario_config["sample_name"] = SHARED_SAMPLE_SCENARIOS.get(scenario_name, scenario_name)
+        scenario_config["base_sample_filter"] = "True"
+        for period, model_spec in models.items():
+            model_columns = list(
+                dict.fromkeys(
+                    [
+                        model_spec["dependent"],
+                        *model_spec["regressors"],
+                        *get_categorical_columns(scenario_config),
+                    ]
+                )
+            )
+            complete_case_n = int(filtered_df[model_columns].notna().all(axis=1).sum())
+            for variable in model_columns:
+                series = filtered_df[variable]
+                is_categorical = variable in categorical_columns
+                numeric = safe_numeric(series) if not is_categorical else pd.Series(dtype=float)
+                registry_meta = variable_registry.get(variable, {})
+                rows.append(
+                    {
+                        "scenario": scenario_name,
+                        "period": period,
+                        "variable": variable,
+                        "variable_label": (
+                            variable
+                            if is_categorical
+                            else variable_label(variable, variable_registry)
+                        ),
+                        "variable_type": (
+                            "categorical_control"
+                            if is_categorical
+                            else registry_meta.get("variable_type", "numeric")
+                        ),
+                        "rows_in_scenario": len(filtered_df),
+                        "non_missing_n": int(series.notna().sum()),
+                        "missing_n": int(series.isna().sum()),
+                        "missing_share": float(series.isna().mean()),
+                        "unique_non_missing": int(series.nunique(dropna=True)),
+                        "complete_case_n_for_model": complete_case_n,
+                        "mean": numeric.mean(skipna=True) if not is_categorical else pd.NA,
+                        "sd": numeric.std(skipna=True) if not is_categorical else pd.NA,
+                        "min": numeric.min(skipna=True) if not is_categorical else pd.NA,
+                        "p05": numeric.quantile(0.05) if not is_categorical else pd.NA,
+                        "median": numeric.median(skipna=True) if not is_categorical else pd.NA,
+                        "p95": numeric.quantile(0.95) if not is_categorical else pd.NA,
+                        "max": numeric.max(skipna=True) if not is_categorical else pd.NA,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
 def build_correlation_long(
     scenario_results: dict[str, dict[str, Any]],
     config: dict[str, Any],
@@ -2494,26 +2681,304 @@ def build_correlation_long(
         for period, model_spec in models.items():
             estimation_df = get_estimation_sample(filtered_df, scenario_config, model_spec)
             variables = numeric_variables_for_correlations(model_spec, variable_registry)
-            for variant in get_model_variants(scenario_config):
-                model_name = get_model_name(period, variant)
+            for variant_name in CORRELATION_VARIANTS:
+                variant_df, effective_names = correlation_variant_frame(
+                    estimation_df,
+                    model_spec,
+                    variant_name,
+                    scenario_config,
+                )
+                model_name = f"{period}_{variant_name}"
                 for i, variable_1 in enumerate(variables):
                     for variable_2 in variables[i + 1:]:
-                        pair = estimation_df[[variable_1, variable_2]].apply(pd.to_numeric, errors="coerce").dropna()
+                        pair = variant_df[[variable_1, variable_2]].apply(pd.to_numeric, errors="coerce").dropna()
                         rows.append(
                             {
                                 "scenario": scenario_name,
                                 "period": period,
+                                "variant": variant_name,
                                 "model": model_name,
                                 "sample_type": "estimation_sample",
+                                "source_dataframe": f"{scenario_name}_{period}_{variant_name}_correlation_frame",
                                 "variable_1": variable_1,
+                                "variable_1_effective": effective_names[variable_1],
                                 "variable_1_label": variable_label(variable_1, variable_registry),
                                 "variable_2": variable_2,
+                                "variable_2_effective": effective_names[variable_2],
                                 "variable_2_label": variable_label(variable_2, variable_registry),
                                 "correlation": pair[variable_1].corr(pair[variable_2]) if len(pair) >= 2 else pd.NA,
                                 "N": len(pair),
                             }
                         )
     return pd.DataFrame(rows)
+
+
+def build_main_full_correlation(correlation_long_df: pd.DataFrame, variant: str) -> pd.DataFrame:
+    columns = [
+        "scenario",
+        "period",
+        "variant",
+        "source_dataframe",
+        "variable_1",
+        "variable_1_effective",
+        "variable_2",
+        "variable_2_effective",
+        "correlation",
+        "N",
+    ]
+    subset = correlation_long_df.loc[
+        correlation_long_df["scenario"].eq("ALL")
+        & correlation_long_df["period"].eq("FULL")
+        & correlation_long_df["variant"].eq(variant)
+    ].copy()
+    return subset.reindex(columns=columns).reset_index(drop=True)
+
+
+def build_correlation_with_dv(
+    correlation_long_df: pd.DataFrame,
+    models: dict[str, dict[str, Any]],
+    variant: str,
+) -> pd.DataFrame:
+    frames = []
+    for period, model_spec in models.items():
+        dependent = model_spec["dependent"]
+        subset = correlation_long_df.loc[
+            correlation_long_df["period"].eq(period)
+            & correlation_long_df["variant"].eq(variant)
+            & (
+                correlation_long_df["variable_1"].eq(dependent)
+                | correlation_long_df["variable_2"].eq(dependent)
+            )
+        ].copy()
+        if subset.empty:
+            continue
+        subset["dependent_variable"] = dependent
+        subset["dependent_variable_effective"] = subset.apply(
+            lambda row: row["variable_1_effective"]
+            if row["variable_1"] == dependent
+            else row["variable_2_effective"],
+            axis=1,
+        )
+        subset["predictor"] = subset.apply(
+            lambda row: row["variable_2"] if row["variable_1"] == dependent else row["variable_1"],
+            axis=1,
+        )
+        frames.append(subset)
+
+    columns = [
+        "scenario",
+        "period",
+        "variant",
+        "source_dataframe",
+        "dependent_variable",
+        "dependent_variable_effective",
+        "predictor",
+        "correlation",
+        "N",
+    ]
+    return (
+        pd.concat(frames, ignore_index=True).reindex(columns=columns)
+        if frames
+        else pd.DataFrame(columns=columns)
+    )
+
+
+def build_predictor_risk(
+    correlation_long_df: pd.DataFrame,
+    models: dict[str, dict[str, Any]],
+    variant: str,
+) -> pd.DataFrame:
+    frames = []
+    for period, model_spec in models.items():
+        dependent = model_spec["dependent"]
+        subset = correlation_long_df.loc[
+            correlation_long_df["period"].eq(period)
+            & correlation_long_df["variant"].eq(variant)
+            & correlation_long_df["variable_1"].ne(dependent)
+            & correlation_long_df["variable_2"].ne(dependent)
+        ].copy()
+        frames.append(subset)
+    columns = [
+        "scenario",
+        "period",
+        "variant",
+        "source_dataframe",
+        "variable_1",
+        "variable_2",
+        "correlation",
+        "absolute_correlation",
+        "high_correlation_abs_ge_0_8",
+        "N",
+    ]
+    if not frames:
+        return pd.DataFrame(columns=columns)
+    output = pd.concat(frames, ignore_index=True)
+    output["absolute_correlation"] = output["correlation"].abs()
+    output["high_correlation_abs_ge_0_8"] = output["absolute_correlation"].ge(0.8)
+    return output.reindex(columns=columns).sort_values(
+        ["scenario", "period", "absolute_correlation"],
+        ascending=[True, True, False],
+    ).reset_index(drop=True)
+
+
+def build_correlation_stability(correlation_long_df: pd.DataFrame, variant: str) -> pd.DataFrame:
+    subset = correlation_long_df.loc[correlation_long_df["variant"].eq(variant)].copy()
+    if subset.empty:
+        return pd.DataFrame()
+    pivot = subset.pivot(
+        index=["period", "variable_1", "variable_2"],
+        columns="scenario",
+        values="correlation",
+    ).reset_index()
+    scenario_columns = [scenario for scenario in SCENARIOS if scenario in pivot.columns]
+    pivot["min_correlation_across_scenarios"] = pivot[scenario_columns].min(axis=1)
+    pivot["max_correlation_across_scenarios"] = pivot[scenario_columns].max(axis=1)
+    pivot["range_across_scenarios"] = (
+        pivot["max_correlation_across_scenarios"] - pivot["min_correlation_across_scenarios"]
+    )
+    pivot.insert(0, "variant", variant)
+    pivot.insert(1, "source_dataframes", f"scenario-specific *_{{period}}_{variant}_correlation_frame")
+    return pivot
+
+
+def build_correlation_readme(config: dict[str, Any]) -> pd.DataFrame:
+    rows = [
+        (
+            "Pearson standardisation rule",
+            "Linear standardisation does not change Pearson correlations, so baseline_std and winsor_std correlation sheets are intentionally omitted.",
+        ),
+        (
+            "Winsorisation rule",
+            f"Winsor variants clip the dependent variable only at quantiles {config['winsor_lower']:.2f} and {config['winsor_upper']:.2f}; extreme-value changes can alter correlations.",
+        ),
+        (
+            "Baseline data lineage",
+            "baseline correlations use the raw numeric variables from each exact scenario-period estimation sample.",
+        ),
+        (
+            "Winsor data lineage",
+            "winsor correlations use the same exact estimation sample, with its dependent variable replaced by the variant-specific winsorised series; predictors remain unchanged.",
+        ),
+        (
+            "Standardised outputs omitted",
+            "No separate baseline_std or winsor_std correlation tables are exported.",
+        ),
+    ]
+    rows.extend(
+        ("Worksheet-name mapping", f"{logical_name} -> {sheet_name}")
+        for logical_name, sheet_name in CORRELATION_SHEET_NAMES.items()
+    )
+    return pd.DataFrame(rows, columns=["item", "description"])
+
+
+def build_correlation_output_tables(
+    correlation_long_df: pd.DataFrame,
+    models: dict[str, dict[str, Any]],
+) -> dict[str, pd.DataFrame]:
+    tables: dict[str, pd.DataFrame] = {}
+    for variant in CORRELATION_VARIANTS:
+        logical_tables = {
+            f"Correlation_MAIN_FULL_{variant}": build_main_full_correlation(correlation_long_df, variant),
+            f"Correlation_With_DV_{variant}": build_correlation_with_dv(correlation_long_df, models, variant),
+            f"Correlation_Predictor_Risk_{variant}": build_predictor_risk(correlation_long_df, models, variant),
+            f"Correlation_Stability_Scenarios_{variant}": build_correlation_stability(correlation_long_df, variant),
+        }
+        for logical_name, table in logical_tables.items():
+            output = table.copy()
+            output.insert(0, "correlation_output", logical_name)
+            tables[CORRELATION_SHEET_NAMES[logical_name]] = output
+    return tables
+
+
+def build_correlation_matrix(
+    correlation_long_df: pd.DataFrame,
+    scenario: str,
+    period: str,
+    variant: str,
+) -> pd.DataFrame:
+    subset = correlation_long_df.loc[
+        correlation_long_df["scenario"].eq(scenario)
+        & correlation_long_df["period"].eq(period)
+        & correlation_long_df["variant"].eq(variant)
+    ].copy()
+    if subset.empty:
+        return pd.DataFrame()
+    variables = list(
+        dict.fromkeys(
+            [
+                *subset["variable_1"].astype(str).tolist(),
+                *subset["variable_2"].astype(str).tolist(),
+            ]
+        )
+    )
+    matrix = pd.DataFrame(index=variables, columns=variables, dtype=float)
+    for variable in variables:
+        matrix.loc[variable, variable] = 1.0
+    for row in subset.itertuples(index=False):
+        matrix.loc[row.variable_1, row.variable_2] = row.correlation
+        matrix.loc[row.variable_2, row.variable_1] = row.correlation
+    effective_names = {
+        **dict(zip(subset["variable_1"], subset["variable_1_effective"])),
+        **dict(zip(subset["variable_2"], subset["variable_2_effective"])),
+    }
+    output = matrix.reset_index().rename(columns={"index": "variable"})
+    output.insert(0, "effective_variable", output["variable"].map(effective_names))
+    output.insert(0, "variant", variant)
+    output.insert(0, "period", period)
+    output.insert(0, "scenario", scenario)
+    return output
+
+
+def build_predictor_risk_summary(
+    correlation_long_df: pd.DataFrame,
+    models: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    risk_tables = {
+        variant: build_predictor_risk(correlation_long_df, models, variant)
+        for variant in CORRELATION_VARIANTS
+    }
+    keys = ["scenario", "period", "variable_1", "variable_2"]
+    baseline = risk_tables["baseline"].rename(
+        columns={
+            "correlation": "correlation_baseline",
+            "N": "N_baseline",
+        }
+    )
+    winsor = risk_tables["winsor"].rename(
+        columns={
+            "correlation": "correlation_winsor",
+            "N": "N_winsor",
+        }
+    )
+    output = baseline[keys + ["correlation_baseline", "N_baseline"]].merge(
+        winsor[keys + ["correlation_winsor", "N_winsor"]],
+        on=keys,
+        how="outer",
+        validate="one_to_one",
+    )
+    output["absolute_correlation"] = output["correlation_baseline"].abs()
+    output["baseline_winsor_difference"] = (
+        output["correlation_baseline"] - output["correlation_winsor"]
+    ).abs()
+    output["high_correlation_abs_ge_0_8"] = output["absolute_correlation"].ge(0.8)
+    output["interpretation_note"] = (
+        "Predictors are not winsorised; baseline and winsor predictor-predictor correlations should match."
+    )
+    return output.sort_values(
+        ["scenario", "period", "absolute_correlation"],
+        ascending=[True, True, False],
+    ).reset_index(drop=True)
+
+
+def build_appendix_full_matrices(correlation_long_df: pd.DataFrame) -> pd.DataFrame:
+    matrices = []
+    for scenario in SCENARIOS:
+        for period in correlation_long_df["period"].drop_duplicates().tolist():
+            for variant in CORRELATION_VARIANTS:
+                matrix = build_correlation_matrix(correlation_long_df, scenario, period, variant)
+                if not matrix.empty:
+                    matrices.append(matrix)
+    return pd.concat(matrices, ignore_index=True, sort=False) if matrices else pd.DataFrame()
 
 
 def build_variable_labels_table_for_scenarios(
@@ -2559,7 +3024,7 @@ def format_workbook(writer: pd.ExcelWriter, workbook_tables: dict[str, pd.DataFr
     tech_header_format = workbook.add_format({"bold": True, "bg_color": "#C65911", "font_color": "white", "text_wrap": True})
     separator_header_format = workbook.add_format({"bold": True, "bg_color": "#808080", "font_color": "white", "text_wrap": True})
     wrap_format = workbook.add_format({"text_wrap": True, "valign": "top"})
-    working_tabs = {"README", "Compare_Main", "Compare_Raw", "Descriptive_Stats", "Correlation_Long", "Model_Summary_Long"}
+    working_tabs = {"README", "Compare_Main", "Compare_Raw", "Model_Summary_Long"}
     tech_tabs = {"Diagnostics_Long", "Dropped_Rows_Long", "Coefficients_Long", "Variable_Labels", "Run_Log"}
     long_text_columns = {
         "description",
@@ -2612,8 +3077,6 @@ def write_scenario_workbook(
     readme_df: pd.DataFrame,
     compare_main_df: pd.DataFrame,
     compare_raw_df: pd.DataFrame,
-    descriptive_stats_df: pd.DataFrame,
-    correlation_long_df: pd.DataFrame,
     summary_long_df: pd.DataFrame,
     coefficients_long_df: pd.DataFrame,
     diagnostics_long_df: pd.DataFrame,
@@ -2627,8 +3090,6 @@ def write_scenario_workbook(
         "README": readme_df,
         "Compare_Main": compare_main_df,
         "Compare_Raw": compare_raw_df,
-        "Descriptive_Stats": descriptive_stats_df,
-        "Correlation_Long": correlation_long_df,
         "Model_Summary_Long": summary_long_df,
         "AUDIT_AND_TECHNICAL_TABS": separator_df,
         "Diagnostics_Long": diagnostics_long_df,
@@ -2692,8 +3153,6 @@ def print_scenario_validation(
     diagnostics_long_df: pd.DataFrame,
     dropped_rows_long_df: pd.DataFrame,
     variable_labels_df: pd.DataFrame,
-    descriptive_stats_df: pd.DataFrame,
-    correlation_long_df: pd.DataFrame,
     compare_main_df: pd.DataFrame,
     compare_raw_df: pd.DataFrame,
     run_log_df: pd.DataFrame,
@@ -2715,14 +3174,31 @@ def print_scenario_validation(
     print(f"scenario_count: {len(SCENARIOS):,}")
     print(f"models_estimated: {models_estimated:,}")
     print(f"models_skipped: {models_skipped:,}")
+    models = build_models(config)
+    print(
+        "FULL_interaction_uses_P1_start: "
+        f"{validate_full_interaction_uses_p1_start(config, models)}"
+    )
+    print(f"P1_lag_validation: {lag_growth_col(config, 'P1') in models['P1']['regressors']}")
+    print(f"P2_lag_validation: {lag_growth_col(config, 'P2') in models['P2']['regressors']}")
+    print(f"P3_lag_validation: {lag_growth_col(config, 'P3') in models['P3']['regressors']}")
+    print(
+        "FULL_has_no_lag_growth: "
+        f"{not any(regressor.startswith('lag_') for regressor in models['FULL']['regressors'])}"
+    )
+    print("2018_role: used only for P1 lag growth")
+    print("main_analysis_window: dependent variables, trajectories, SGrowth_NR, and FULL remain 2019-2024")
+    print(
+        "sector_en present and used as categorical control: "
+        f"{'sector_en' in input_df.columns and 'sector_en' in get_categorical_columns(config)}"
+    )
     print(f"Model_Summary_Long_has_scenario_column: {'scenario' in summary_long_df.columns}")
     print(f"Coefficients_Long_has_scenario_column: {'scenario' in coefficients_long_df.columns}")
     print(f"Diagnostics_Long_has_scenario_column: {'scenario' in diagnostics_long_df.columns}")
     print(f"output_sheets_written: {written_sheets}")
     print(f"Dropped_Rows_Long_exists: {'Dropped_Rows_Long' in written_sheets and not dropped_rows_long_df.empty}")
     print(f"Variable_Labels_exists: {'Variable_Labels' in written_sheets and not variable_labels_df.empty}")
-    print(f"descriptive_stats_row_count: {len(descriptive_stats_df):,}")
-    print(f"correlation_row_count: {len(correlation_long_df):,}")
+    print("diagnostic_workbook_generated_by_this_script: False")
     print(f"compare_main_scenarios_included: {sorted(compare_main_df['scenario'].dropna().unique().tolist()) if 'scenario' in compare_main_df else []}")
     print(f"compare_raw_scenarios_included: {sorted(compare_raw_df['scenario'].dropna().unique().tolist()) if 'scenario' in compare_raw_df else []}")
     print("workbook_formatting_applied: True")
@@ -2764,6 +3240,9 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
     validate_user_config(config)
     config = normalise_config(config)
     validate_config(config)
+    scenario_names = list(SCENARIOS)
+    validate_scenario_alignment(scenario_names, list(get_scenario_definitions()))
+    print(f"final_ordered_scenarios: {scenario_names}")
 
     models = build_models(config)
     pre_filter_registry = build_variable_registry(config, models)
@@ -2823,16 +3302,12 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         config=config,
         variant_suffixes=COMPARE_RAW_VARIANTS,
     )
-    descriptive_stats_df = build_descriptive_stats(scenario_results, config, models)
-    correlation_long_df = build_correlation_long(scenario_results, config, models)
     variable_labels_df = build_variable_labels_table_for_scenarios(scenario_results, coefficients_long_df)
 
     written_sheets = write_scenario_workbook(
         readme_df=build_readme_sheet(config),
         compare_main_df=compare_main_df,
         compare_raw_df=compare_raw_df,
-        descriptive_stats_df=descriptive_stats_df,
-        correlation_long_df=correlation_long_df,
         summary_long_df=summary_long_df,
         coefficients_long_df=coefficients_long_df,
         diagnostics_long_df=diagnostics_long_df,
@@ -2858,8 +3333,6 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         diagnostics_long_df=diagnostics_long_df,
         dropped_rows_long_df=dropped_rows_long_df,
         variable_labels_df=variable_labels_df,
-        descriptive_stats_df=descriptive_stats_df,
-        correlation_long_df=correlation_long_df,
         compare_main_df=compare_main_df,
         compare_raw_df=compare_raw_df,
         run_log_df=run_log_df,
@@ -2879,8 +3352,6 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         "diagnostics_long_df": diagnostics_long_df,
         "dropped_rows_long_df": dropped_rows_long_df,
         "variable_labels_df": variable_labels_df,
-        "descriptive_stats_df": descriptive_stats_df,
-        "correlation_long_df": correlation_long_df,
         "compare_main_df": compare_main_df,
         "compare_raw_df": compare_raw_df,
         "run_log_df": run_log_df,
@@ -2899,23 +3370,20 @@ if __name__ == "__main__":
 
 # Technical note
 #
-# CONFIG is now a lightweight researcher cockpit. Most standard numeric
-# regressors are added with one line in CONFIG["base_regressors"], while
-# metadata dictionaries provide optional labels, interpretations, and special
-# rules.
+# Shared period-model settings and metadata are maintained in analysis_config.py.
+# This script adds only regression-specific paths and labels before normalising
+# that shared configuration.
 #
 # The internal model engine still works with fully expanded dictionaries. The
 # normalise_* functions convert the lightweight CONFIG into that internal shape
 # before model construction, validation, registry building, and workbook export.
 #
-# To add a new standard numeric variable, add its base name to
-# CONFIG["base_regressors"]. If a better label, interpretation, standardisation
-# setting, or column pattern is needed, add an entry to REGRESSOR_METADATA.
+# To add a new standard numeric variable, update PERIOD_MODEL_SETTINGS and, when
+# needed, REGRESSOR_METADATA in analysis_config.py.
 #
-# To add a new categorical control, add its column name to
-# CONFIG["categorical_controls"] and add the required reference, display_prefix,
-# and interpretation_template fields to CATEGORICAL_METADATA. The script never
-# guesses categorical reference categories.
+# To add a categorical control, update PERIOD_MODEL_SETTINGS and
+# CATEGORICAL_METADATA in analysis_config.py. The engine never guesses
+# categorical reference categories.
 #
 # Standardised beta outputs were removed to reduce duplicated interpretation.
 # Compare_Main is the main interpretation table and uses standardised models.
@@ -2927,7 +3395,7 @@ if __name__ == "__main__":
 # missing dependent, regressor, or categorical-control values, supporting sample
 # transparency and bias checks.
 #
-# Interaction capability is controlled entirely by INTERACTION_METADATA. When
+# Interaction capability is controlled by analysis_config.INTERACTION_METADATA. When
 # INTERACTION_METADATA is empty or all interaction include flags are False, the
 # model results contain no interactions. Interactions are useful for testing
 # whether one predictor modifies the effect of another, but main effects should

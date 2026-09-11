@@ -36,6 +36,8 @@ The additional `2018 -> 2019` interval is used only to calculate P1 lag-growth v
 
 - `pkd`
 - `pkd_description`
+- `sector`
+- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
@@ -436,6 +438,8 @@ The following firm-level descriptors are collapsed to one row per `nip` by takin
 - `in_rank_2019`
 - `pkd`
 - `pkd_description`
+- `sector`
+- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
@@ -445,7 +449,9 @@ The following firm-level descriptors are collapsed to one row per `nip` by takin
 
 Descriptors are collapsed using observations from 2019 onward; 2018 is not used as a descriptor source.
 
-The current annual source does not contain `business_start_year`, `gpw`, `incorporation_year_krs`, `sector`, or `sector_en`. They are omitted from this dataset without substitution.
+`sector` and `sector_en` are required outputs. They are collapsed from 2019-2024 observations only; 2018 cannot overwrite them. The unavailable `business_start_year`, `gpw`, and `incorporation_year_krs` columns remain omitted.
+
+Sector values originate directly from `Data_panel_2018-2024.parquet` through the annual canonical dataset.
 
 ## Missing-data and denominator handling
 

@@ -30,7 +30,7 @@ from analysis_helpers import (
 
 CONFIG = {
     "analysis_name": "period_quantile_regression",
-    "input_file": "Data_period_2019-2024.parquet",
+    "input_file": "Data_period_2018-2024.parquet",
     "output_file": "Results_period_quantile.xlsx",
     "growth_mode": "nominal",
     "periods": ["P1", "P2", "P3", "FULL"],
@@ -57,7 +57,7 @@ BASE_REGRESSORS = [
 ]
 OWNER_COLUMN = "owner_num"
 CATEGORICAL_CONTROLS = ["sector_en"]
-LAG_GROWTH_PERIODS = ["P2", "P3"]
+LAG_GROWTH_PERIODS = ["P1", "P2", "P3"]
 
 CATEGORICAL_METADATA = {
     "sector_en": {
@@ -758,6 +758,10 @@ def build_readme(config: dict[str, Any]) -> pd.DataFrame:
         ("Growth mode", config["growth_mode"]),
         ("Quantiles", ", ".join(str(q) for q in config["quantiles"])),
         ("Preferred model variant", config["preferred_model_variant"]),
+        ("2018 role", "2018 is used only to calculate P1 lag growth; it is not an analytical outcome period."),
+        ("Lag growth logic", "P1 uses 2018-2019 lag growth; P2 and P3 retain their prior-period lags; FULL has no lag growth."),
+        ("Main analysis window", "Dependent variables, trajectories, SGrowth_NR, and FULL growth remain based on 2019-2024."),
+        ("Sector controls", "sector_en is required and included as a categorical control with production as the reference category."),
         ("Model specification", "winsorised dependent variable and standardised numeric regressors/dependent variable"),
         (
             "Quantile interpretation",
@@ -1045,6 +1049,13 @@ def format_workbook(writer: pd.ExcelWriter, tables: dict[str, pd.DataFrame]) -> 
 
 
 def validate_input_columns(df: pd.DataFrame, config: dict[str, Any]) -> None:
+    if "P1" in LAG_GROWTH_PERIODS:
+        p1_lag_column = lag_growth_col(config, "P1")
+        if p1_lag_column not in df.columns:
+            raise ValueError(
+                f"Input file is missing required P1 lag-growth column: {p1_lag_column}. "
+                "Rebuild Data_period_2018-2024 with the 2018 sales extension."
+            )
     required = {complete_flag_col(config), OWNER_COLUMN, *CATEGORICAL_CONTROLS}
     generated_interactions = {
         interaction_col(interaction["name"], period)
@@ -1223,6 +1234,20 @@ def print_validation(
     print("Quantile regression completed")
     print(f"analysis_name: {config['analysis_name']}")
     print(f"growth_mode: {config['growth_mode']}")
+    print(f"input_file: {config['input_file']}")
+    print(f"P1_lag_validation: {lag_growth_col(config, 'P1') in period_regressors(config, 'P1')}")
+    print(f"P2_lag_validation: {lag_growth_col(config, 'P2') in period_regressors(config, 'P2')}")
+    print(f"P3_lag_validation: {lag_growth_col(config, 'P3') in period_regressors(config, 'P3')}")
+    print(
+        "FULL_has_no_lag_growth: "
+        f"{not any(regressor.startswith('lag_') for regressor in period_regressors(config, 'FULL'))}"
+    )
+    print("2018_role: used only for P1 lag growth")
+    print("main_analysis_window: dependent variables, trajectories, SGrowth_NR, and FULL remain 2019-2024")
+    print(
+        "sector_en present and used as categorical control: "
+        f"{'sector_en' in CATEGORICAL_CONTROLS}"
+    )
     print(f"quantiles: {config['quantiles']}")
     print(f"preferred_model_variant: {config['preferred_model_variant']}")
     scenarios_estimated = len(SCENARIOS)

@@ -4,7 +4,7 @@
 
 `run_period_ols_scenarios.py` is the current master OLS regression pipeline for the 2026 period analysis.
 
-It estimates scenario-based OLS models from `Data_period_2019-2024.parquet` and exports:
+It estimates scenario-based OLS models from `Data_period_2018-2024.parquet` and exports:
 
 - `Results_period_ols_scenarios.xlsx`
 
@@ -18,7 +18,9 @@ The older single-sample workbook path is no longer the primary documented workfl
 
 ## Input
 
-- `Data_period_2019-2024.parquet`
+- `Data_period_2018-2024.parquet`
+
+The 2018 data is used only for the 2018-2019 lag-growth variable included in P1 models. Main dependent variables, trajectories, `SGrowth_NR`, and FULL-period growth remain based on 2019-2024.
 
 The script applies the trajectory-completeness filter implied by `growth_mode`, then applies the scenario filter.
 
@@ -94,21 +96,24 @@ Owner control:
 - raw variable: `owner_num`
 - displayed as: `Foreign`
 
-Categorical control:
+Categorical controls:
 
-- raw variable: `sector_en`
+- `sector_en` is required and included in every regression
 - reference category: `production`
+- scripts fail clearly if the column or reference category is missing
 
 Interaction:
 
 - `export_ratio x ln_sales`
-- generated as `foreign_x_size_ratio_P1`, `foreign_x_size_ratio_P2`, `foreign_x_size_ratio_P3`, and `foreign_x_size_ratio_FULL`
-- for `FULL`, the interaction uses P1 source variables: `export_ratio_start_P1 * ln_sales_start_P1`
+- generated as `export_ratio_x_ln_sales_start_P1`, `export_ratio_x_ln_sales_start_P2`, and `export_ratio_x_ln_sales_start_P3`
+- `P1` and `FULL` both use the same raw interaction column: `export_ratio_x_ln_sales_start_P1`
+- for `FULL`, the interaction is calculated from `export_ratio_start_P1 * ln_sales_start_P1`
 
 Lag growth:
 
-- included only for configured lag periods, currently `P2` and `P3`
-- not included for `P1`
+- included for configured lag periods `P1`, `P2`, and `P3`
+- P1 uses `lag_*growth_log_ann_P1`, calculated from 2018-2019
+- P2 and P3 retain their existing prior-period lag variables
 - not included for `FULL`
 
 ## Winsorisation
@@ -137,13 +142,11 @@ Categorical dummies, ownership dummy, and intercept are excluded from standardis
 
 ## Workbook Structure
 
-`Results_period_ols_scenarios.xlsx` contains exactly:
+`Results_period_ols_scenarios.xlsx` contains:
 
 - `README`
 - `Compare_Main`
 - `Compare_Raw`
-- `Descriptive_Stats`
-- `Correlation_Long`
 - `Model_Summary_Long`
 - `AUDIT_AND_TECHNICAL_TABS`
 - `Diagnostics_Long`
@@ -206,49 +209,15 @@ Columns:
 
 Rows use display labels from the variable registry.
 
-### Descriptive_Stats
+Pre-modelling descriptive, missingness, winsorisation, trajectory, and correlation
+diagnostics are reported separately in
+`Results_variable_diagnostics_and_trajectories.xlsx`. This keeps regression
+results separate from pre-modelling diagnostics while preserving the same shared
+scenario definitions and exact model-variable logic.
 
-Long-format descriptive statistics for model variables on each exact estimation sample.
-
-Columns include:
-
-- `scenario`
-- `period`
-- `model`
-- `sample_type`
-- `raw_variable`
-- `variable_label`
-- `variable_type`
-- `N`
-- `missing`
-- `mean`
-- `sd`
-- `min`
-- `p25`
-- `median`
-- `p75`
-- `max`
-
-Sector dummies are excluded from descriptive statistics to keep the sheet readable.
-
-### Correlation_Long
-
-Long-format pairwise Pearson correlations for key numeric variables on each exact estimation sample.
-
-Columns include:
-
-- `scenario`
-- `period`
-- `model`
-- `sample_type`
-- `variable_1`
-- `variable_1_label`
-- `variable_2`
-- `variable_2_label`
-- `correlation`
-- `N`
-
-Sector dummies, categorical dummies, and interaction terms are excluded by default.
+`run_period_ols_scenarios.py` writes only the regression workbook.
+`Results_variable_diagnostics_and_trajectories.xlsx` is generated independently
+by `run_trajectory_analysis.py` using the shared definitions in `analysis_config.py`.
 
 ### Model_Summary_Long
 
@@ -353,5 +322,5 @@ The workbook is designed so that interpretation can start from `README`, `Compar
 
 - Script: `run_period_ols_scenarios.py`
 - Output file: `Results_period_ols_scenarios.xlsx`
-- Main change covered: scenario OLS engine with FULL-period models, consolidated comparison sheets, descriptive statistics, correlations, dropped-row audit trail, labels, and formatted workbook structure
-- Date: 2026-05-08
+- Main change covered: interaction renamed to `export_ratio_x_ln_sales`; interaction columns now follow starting-point regressor periods, with P1 and FULL sharing `export_ratio_x_ln_sales_start_P1`
+- Date: 2026-07-01

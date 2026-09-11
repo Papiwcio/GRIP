@@ -5,7 +5,8 @@ Changes:
 - Initial canonical dataset build
 - Extended coverage to 2018 for P1 lag growth
 - Aligned the canonical schema with the columns currently available in `Data_panel_2018-2024.parquet`
-- Omitted unavailable descriptors rather than fabricating or substituting values
+- Read `sector` directly from `Data_panel_2018-2024.parquet` and derived `sector_en`
+- Filled stable descriptors within firm from the first non-missing 2019-2024 observation
 
 ## Purpose
 
@@ -30,13 +31,14 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 2. Keep one row per (`nip`, `year`)
 3. Keep `rank_2019` and create `in_rank_2019`
 4. Drop `rank_2020` to `rank_2024`
-5. Trim whitespace in string fields and convert empty placeholders to missing values
-6. Coerce identifier and financial columns to consistent numeric types
-7. Remove rows with missing `nip` or `year`
-8. Remove duplicate firm-year rows if present:
+5. For rows where canonical `sales` is missing, fill it from source `przychody`; in the current input this supplies all 2,533 observations for 2018 P1 lag growth. Omit `przychody` after this explicit mapping and omit source-only `gpw`.
+6. Trim whitespace in string fields and convert empty placeholders to missing values
+7. Coerce identifier and financial columns to consistent numeric types
+8. Remove rows with missing `nip` or `year`
+9. Remove duplicate firm-year rows if present:
    - keep the row with the highest number of non-missing values
    - break remaining ties by sorted order
-9. Sort the final panel by `nip`, `year`
+10. Sort the final panel by `nip`, `year`
 
 ## Final column set
 
@@ -52,6 +54,8 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 - `in_rank_2019`
 - `pkd`
 - `pkd_description`
+- `sector`
+- `sector_en`
 - `manufacturing`
 - `owner_type`
 - `owner`
@@ -121,22 +125,39 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 - `has_assets`
 - `has_employment`
 
-Total columns: `57`
+Total columns: `59`
 
 ## Calculated variables and formulas
 
 ### Structural descriptors
 
 - `in_rank_2019`: `1` if `rank_2019` is non-missing, otherwise `0`.
+- `sector`: retained as supplied in `Data_panel_2018-2024.parquet`; missing values remain missing.
+- `sector_en`: translated from `sector` using the fixed mapping in `build_core_panel.py`.
+  - `budownictwo` -> `construction`
+  - `chemia` -> `chemicals`
+  - `energetyka` -> `energy`
+  - `górnictwo i hutnictwo` -> `mining and metallurgy`
+  - `handel detaliczny` -> `retail trade`
+  - `handel hurtowy` -> `wholesale trade`
+  - `media, telekomunkacja, IT` -> `media, telecommunications, and IT`
+  - `motoryzacja` -> `automotive`
+  - `ochrona zdrowia i farmacja` -> `health and pharma`
+  - `paliwa` -> `fuels`
+  - `produkcja` -> `production`
+  - `transport` -> `transport`
+  - `usługi` -> `services`
+  - `żywność` -> `food`
+  - if `sector` is missing or unmatched, `sector_en` remains missing and the build summary reports it
 - `owner`: `"Foreign"` if `owner_type` starts with `"5"`, otherwise `"Domestic"`.
 - `owner_num`: `1` if `owner = "Foreign"`, otherwise `0`.
 - `manufacturing`: `1` if the two-digit PKD section is between `10` and `33`, otherwise `0`.
 
-The current source does not contain `business_start_year`, `gpw`, `incorporation_year_krs`, or `sector`. Consequently, these columns and the derived `sector_en` column are not part of the canonical output. No proxy or replacement variable is used.
+The unavailable `business_start_year` and `incorporation_year_krs` columns remain omitted. The canonical raw-financial columns `income_tax`, `zobowiazania_dlugoterminowe`, and `zobowiazania_krotkoterminow` are absent from the current source; they are retained in the canonical schema and filled with `NaN`, with their unavailability reported by the build.
 
 ### Liability source columns
 
-The five liability variables are preserved exactly as supplied:
+The five liability variables remain in the canonical schema:
 
 - `total_liabilities`
 - `liabilities_provisions`
@@ -144,7 +165,9 @@ The five liability variables are preserved exactly as supplied:
 - `zobowiazania_dlugoterminowe`
 - `zobowiazania_krotkoterminow`
 
-They are raw annual variables, not calculated substitutes for one another. Their observed year coverage differs in the current source, and missing values remain `NaN`.
+They are raw annual variables, not calculated substitutes for one another. `zobowiazania_dlugoterminowe` and `zobowiazania_krotkoterminow` are unavailable in the current source and therefore remain `NaN`; no substitute is constructed. The other liability variables are preserved exactly as supplied.
+
+`income_tax` is also unavailable in the current source and remains `NaN`; it is not replaced with zero or inferred from another variable.
 
 ### Real and log variables
 

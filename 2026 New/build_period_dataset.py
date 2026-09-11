@@ -29,6 +29,8 @@ STABLE_DESCRIPTOR_CANDIDATES = [
     "in_rank_2019",
     "pkd",
     "pkd_description",
+    "sector",
+    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
@@ -59,6 +61,8 @@ BLOCK_1_COLUMNS = ["nip", "company", "rank_2019", "in_rank_2019"]
 BLOCK_2_COLUMNS = [
     "pkd",
     "pkd_description",
+    "sector",
+    "sector_en",
     "manufacturing",
     "owner_type",
     "owner",
@@ -598,6 +602,11 @@ def validate_output_schema(df: pd.DataFrame) -> None:
     missing_columns = [column for column in required_families if column not in df.columns]
     if missing_columns:
         raise ValueError(f"Output is missing required columns: {missing_columns}")
+    for sector_column in ["sector", "sector_en"]:
+        if sector_column not in df.columns:
+            raise ValueError(f"Output is missing required sector column: {sector_column}")
+    if df["sector_en"].dropna().eq("production").sum() == 0:
+        raise ValueError("Output sector_en has no production observations for the regression reference category.")
 
     for lag_columns in [REAL_LAG_COLUMNS, NOMINAL_LAG_COLUMNS]:
         lag_positions = [df.columns.get_loc(column) for column in lag_columns]
@@ -704,9 +713,12 @@ def print_build_summary(
     print(f"Duplicate columns present: {df.columns.duplicated().any()}")
     print(
         "Unavailable source descriptors omitted: "
-        "['business_start_year', 'gpw', 'incorporation_year_krs', "
-        "'sector', 'sector_en']"
+        "['business_start_year', 'gpw', 'incorporation_year_krs']"
     )
+    print(f"sector missing rate: {df['sector'].isna().mean():.6f}")
+    print(f"sector_en missing rate: {df['sector_en'].isna().mean():.6f}")
+    print(df["sector_en"].value_counts(dropna=False).to_string())
+    print(f"sector_en present and used as categorical control: {'sector_en' in df.columns}")
     print(f"Count of firms with has_complete_rtrajectory = 1: {int(df['has_complete_rtrajectory'].sum()):,}")
     print(f"Count of firms with has_complete_ntrajectory = 1: {int(df['has_complete_ntrajectory'].sum()):,}")
     print(

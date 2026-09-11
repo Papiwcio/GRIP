@@ -103,10 +103,10 @@ INTERACTION_METADATA = {
 # The complete-growth requirement is added automatically from growth_mode.
 CONFIG = {
     "analysis_name": "period_ols_main",
-    "input_file": "Data_period_2019-2024.parquet",
+    "input_file": "Data_period_2018-2024.parquet",
     "output_file": "Results_period_ols.xlsx",
-    "sample_name": "Rank2019",
-    "base_sample_filter": "in_rank_2019 == 1",  #and manufacturing == 1
+    "sample_name": "Rank2019_Manufacturing",
+    "base_sample_filter": "in_rank_2019 == 1 and manufacturing == 1",
     "growth_mode": "nominal",  # "real" or "nominal"
     "periods": ["P1", "P2", "P3", "FULL"],
     "base_regressors": [
@@ -118,7 +118,7 @@ CONFIG = {
     "include_owner": True,
     "owner_column": "owner_num",
     "include_lag_growth": True,
-    "lag_growth_periods": ["P2", "P3"],
+    "lag_growth_periods": ["P1", "P2", "P3"],
     "categorical_controls": [
         "sector_en",
     ],
@@ -779,6 +779,13 @@ def get_required_columns(config: dict[str, Any], models: dict[str, dict[str, Any
 
 
 def validate_input_columns(df: pd.DataFrame, config: dict[str, Any], models: dict[str, dict[str, Any]]) -> None:
+    if config["include_lag_growth"] and "P1" in config["lag_growth_periods"]:
+        p1_lag_column = lag_growth_col(config, "P1")
+        if p1_lag_column not in df.columns:
+            raise ValueError(
+                f"Input file is missing required P1 lag-growth column: {p1_lag_column}. "
+                "Rebuild Data_period_2018-2024 with the 2018 sales extension."
+            )
     missing = sorted(set(get_required_columns(config, models)).difference(df.columns))
     if missing:
         raise ValueError(
@@ -1605,6 +1612,13 @@ def print_validation(
     print(f"analysis_name: {config['analysis_name']}")
     print(f"sample_name: {config['sample_name']}")
     print(f"growth_mode: {config['growth_mode']}")
+    print(f"input_file: {config['input_file']}")
+    print("2018_role: used only for P1 lag growth")
+    print("main_analysis_window: P1/P2/P3, trajectories, SGrowth_NR, and FULL remain based on 2019-2024")
+    print(
+        "sector_en present and used as categorical control: "
+        f"{'sector_en' in input_df.columns and 'sector_en' in get_categorical_columns(config)}"
+    )
     print(f"base_sample_filter: {config['base_sample_filter']}")
     print(f"sample_filter: {get_sample_filter(config)}")
     print(f"covariance_type: {config['covariance_type']}")
@@ -1620,6 +1634,14 @@ def print_validation(
     print("generated_regressors_per_period:")
     for period, model_spec in models.items():
         print(f"{period}: {model_spec['regressors']}")
+    print(
+        "P1_lag_validation: "
+        f"{lag_growth_col(config, 'P1') in models['P1']['regressors']}"
+    )
+    print(
+        "FULL_has_no_lag_growth: "
+        f"{not any(regressor.startswith('lag_') for regressor in models['FULL']['regressors'])}"
+    )
     print("standardisation_registry:")
     included = sorted([name for name, meta in variable_registry.items() if meta["standardise"]])
     excluded = sorted([name for name, meta in variable_registry.items() if not meta["standardise"]])

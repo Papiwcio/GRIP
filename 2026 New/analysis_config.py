@@ -1,12 +1,17 @@
 """
 Shared analytical definitions for the GRIP 2019-2024 resilience analysis.
 
+The source period dataset covers 2018-2024, with 2018 used only for P1 lag
+growth. Main outcomes, trajectories, and FULL growth remain 2019-2024.
 This file contains stable project-wide definitions only.
-Script-specific run settings remain inside individual scripts.
+Shared period-model settings live here so regression and diagnostic workbooks
+use identical variables, periods, samples, interactions, and winsorisation
+rules. Output paths and other script-specific settings remain in each runner.
 """
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 import pandas as pd
@@ -17,6 +22,108 @@ PERIODS = {
     "P2": {"start": 2020, "end": 2022, "years": 2},
     "P3": {"start": 2022, "end": 2024, "years": 2},
 }
+
+PERIOD_MODEL_SETTINGS = {
+    "growth_mode": "nominal",
+    "periods": [*PERIODS, "FULL"],
+    "base_regressors": [
+        "ln_sales",
+        "profit_margin",
+        "export_ratio",
+        "asset_turnover",
+        "capital_ratio",
+        "sales_per_employee",
+    ],
+    "include_owner": True,
+    "owner_column": "owner_num",
+    "include_lag_growth": True,
+    "lag_growth_periods": ["P1", "P2", "P3"],
+    "categorical_controls": ["sector_en"],
+    "winsorise_dependent": True,
+    "winsor_lower": 0.01,
+    "winsor_upper": 0.99,
+    "standardised_models": True,
+    "standardise_dependent": True,
+    "covariance_type": "nonrobust",
+    "model_variants": [
+        {
+            "suffix": "baseline",
+            "model_family": "raw",
+            "winsorised": False,
+            "standardised_model": False,
+        },
+        {
+            "suffix": "baseline_std",
+            "model_family": "std",
+            "winsorised": False,
+            "standardised_model": True,
+        },
+        {
+            "suffix": "winsor",
+            "model_family": "raw_winsor",
+            "winsorised": True,
+            "standardised_model": False,
+        },
+        {
+            "suffix": "winsor_std",
+            "model_family": "std_winsor",
+            "winsorised": True,
+            "standardised_model": True,
+        },
+    ],
+}
+
+DEFAULT_REGRESSOR_RULES = {
+    "column_pattern": "{base_name}_start_{period}",
+    "standardise": True,
+}
+
+REGRESSOR_METADATA = {
+    "ln_sales": {"interpretation": "firm size"},
+    "profit_margin": {"interpretation": "profitability"},
+    "export_ratio": {"interpretation": "internationalisation intensity"},
+    "asset_turnover": {"interpretation": "asset efficiency"},
+    "capital_ratio": {"interpretation": "equity financing strength"},
+    "sales_per_employee": {"interpretation": "labour productivity"},
+}
+
+CATEGORICAL_METADATA = {
+    "sector_en": {
+        "reference": "production",
+        "display_prefix": "sector: ",
+        "interpretation_template": "sector dummy relative to production reference category",
+    }
+}
+
+OWNER_METADATA = {
+    "owner_num": {
+        "display_name": "Foreign",
+        "interpretation": "foreign ownership dummy; Domestic = 0 reference group",
+        "standardise": False,
+    }
+}
+
+LAG_GROWTH_METADATA = {
+    "display_name": "lag_growth_log_ann",
+    "interpretation": "prior-period growth persistence",
+    "standardise": True,
+}
+
+INTERACTION_METADATA = {
+    "export_ratio_x_ln_sales": {
+        "variables": ["export_ratio", "ln_sales"],
+        "display_name": "export_ratio × ln_sales",
+        "interpretation": "interaction between export intensity and company size",
+        "standardise": True,
+        "include": True,
+    }
+}
+
+
+def get_period_model_settings() -> dict[str, Any]:
+    """Return one independent copy of the shared period-model specification."""
+    return deepcopy(PERIOD_MODEL_SETTINGS)
+
 
 SAMPLE_ORDER = ["All", "Rank2019", "Rank2019_Manufacturing"]
 
@@ -182,6 +289,85 @@ SCENARIO_METADATA = {
     },
 }
 
+
+def get_scenario_definitions() -> dict[str, dict[str, Any]]:
+    """Return the validated, ordered scenario configuration used by every analysis."""
+    missing = [name for name in SCENARIO_ORDER if name not in SCENARIO_METADATA]
+    extra = [name for name in SCENARIO_METADATA if name not in SCENARIO_ORDER]
+    if missing or extra:
+        raise ValueError(
+            f"Scenario configuration mismatch: missing metadata={missing}; "
+            f"metadata absent from SCENARIO_ORDER={extra}"
+        )
+    return {name: dict(SCENARIO_METADATA[name]) for name in SCENARIO_ORDER}
+
+
+def validate_scenario_alignment(
+    trajectory_scenarios: list[str],
+    ols_scenarios: list[str],
+) -> None:
+    """Fail loudly if trajectory and OLS scenario names or ordering diverge."""
+    missing_from_trajectory = [name for name in ols_scenarios if name not in trajectory_scenarios]
+    missing_from_ols = [name for name in trajectory_scenarios if name not in ols_scenarios]
+    if missing_from_trajectory or missing_from_ols:
+        details = []
+        if missing_from_trajectory:
+            details.append(
+                "trajectory analysis is missing scenarios used in OLS: "
+                + ", ".join(missing_from_trajectory)
+            )
+        if missing_from_ols:
+            details.append(
+                "OLS is missing scenarios used in trajectory analysis: "
+                + ", ".join(missing_from_ols)
+            )
+        raise ValueError("Scenario mismatch: " + "; ".join(details))
+    if trajectory_scenarios != ols_scenarios:
+        raise ValueError(
+            "Scenario mismatch: trajectory and OLS scenario ordering differs: "
+            f"trajectory={trajectory_scenarios}; OLS={ols_scenarios}"
+        )
+
+
+def build_scenario_mask(
+    df: pd.DataFrame,
+    scenario_name: str,
+    complete_flag_column: str | None = None,
+) -> pd.Series:
+    """Build one scenario mask from the shared scenario metadata."""
+    scenarios = get_scenario_definitions()
+    if scenario_name not in scenarios:
+        raise ValueError(f"Unknown scenario {scenario_name!r}. Expected one of: {list(scenarios)}")
+
+    metadata = scenarios[scenario_name]
+    sample_name = metadata["sample"]
+    if sample_name is not None:
+        return build_sample_mask(df, sample_name, complete_flag_column)
+
+    mask = pd.Series(True, index=df.index, dtype=bool)
+    if complete_flag_column is not None:
+        if complete_flag_column not in df.columns:
+            raise ValueError(f"Complete-flag column not found: {complete_flag_column}")
+        mask &= pd.to_numeric(df[complete_flag_column], errors="coerce").eq(1)
+
+    filter_query = metadata["filter"]
+    if filter_query == "manufacturing == 1":
+        if "manufacturing" not in df.columns:
+            raise ValueError(
+                "Scenario MANUFACTURING requires missing sector indicator column: manufacturing"
+            )
+        mask &= pd.to_numeric(df["manufacturing"], errors="coerce").eq(1)
+    elif filter_query is not None:
+        try:
+            selected_index = df.query(filter_query, engine="python").index
+        except Exception as exc:
+            raise ValueError(
+                f"Scenario {scenario_name!r} filter failed: {filter_query!r}. "
+                f"Available columns include: {sorted(df.columns.tolist())}"
+            ) from exc
+        mask &= df.index.isin(selected_index)
+    return mask
+
 VARIABLE_ORDER = {
     "const": 0,
     "ln_sales": 10,
@@ -268,8 +454,10 @@ VARIABLE_LABELS = {
     "ngrowth_log_ann_P2": "Nominal annualised log growth P2",
     "ngrowth_log_ann_P3": "Nominal annualised log growth P3",
     "ngrowth_log_ann_2019_2024": "Nominal annualised log growth 2019-2024",
+    "lag_rgrowth_log_ann_P1": "Lagged real annualised log growth P1, based on 2018-2019",
     "lag_rgrowth_log_ann_P2": "Lagged real annualised log growth P2",
     "lag_rgrowth_log_ann_P3": "Lagged real annualised log growth P3",
+    "lag_ngrowth_log_ann_P1": "Lagged nominal annualised log growth P1, based on 2018-2019",
     "lag_ngrowth_log_ann_P2": "Lagged nominal annualised log growth P2",
     "lag_ngrowth_log_ann_P3": "Lagged nominal annualised log growth P3",
 }
