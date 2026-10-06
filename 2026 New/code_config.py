@@ -23,7 +23,7 @@ MANUAL_EXCLUSION_REASONS = {
     "M_AND_A": "Non-comparable financial statements due to M&A activities.",
     "LIQUIDATION": "Non-comparable financial statements due to liquidation.",
     "RANK2019_MISCLASSIFIED": "Non-comparable financial statements: energy trading company incorrectly classified as eligible in the 2019 ranking.",
-    "EXTREME_PROFITABILITY_RATIO": "Extreme net-profit/sales ratio from a very small sales denominator; dominates profitability variation in regression analysis.",
+    "HOLDING_NONCONSOLIDATED": "Non-comparable financial statements: holding company reports non-consolidated financial statements.",
 }
 
 MANUAL_EXCLUSIONS = {
@@ -33,7 +33,7 @@ MANUAL_EXCLUSIONS = {
         {"company": "Ignitis Polska sp. z o.o., Warszawa", "nip": "5252714003", "reason_code": "RANK2019_MISCLASSIFIED"},
         {"company": "Elektrobudowa SA w upadłości likwidacyjnej GK, Katowice", "nip": "6340135506", "reason_code": "LIQUIDATION"},
         {"company": "Zakłady Mięsne Henryk Kania SA w upadłości", "nip": "7440003325", "reason_code": "LIQUIDATION"},
-        {"company": "Globus sp. z o.o., Warszawa", "nip": "7773261746", "reason_code": "EXTREME_PROFITABILITY_RATIO"},
+        {"company": "Globus sp. z o.o., Warszawa", "nip": "7773261746", "reason_code": "HOLDING_NONCONSOLIDATED"},
     ],
 }
 

@@ -16,16 +16,16 @@ The five identifiers were checked against the current period input and the upstr
 | Ignitis Polska sp. z o.o., Warszawa | 5252714003 | RANK2019_MISCLASSIFIED | 1 | Removed from analysis |
 | Elektrobudowa SA w upadłości likwidacyjnej GK, Katowice | 6340135506 | LIQUIDATION | 1 | Removed from analysis |
 | Zakłady Mięsne Henryk Kania SA w upadłości | 7440003325 | LIQUIDATION | 1 | Removed from analysis |
-| Globus sp. z o.o., Warszawa | 7773261746 | EXTREME_PROFITABILITY_RATIO | 1 | Removed from analysis |
+| Globus sp. z o.o., Warszawa | 7773261746 | HOLDING_NONCONSOLIDATED | 1 | Removed from analysis |
 
 | Reason code | Description |
 | --- | --- |
 | M_AND_A | Non-comparable financial statements due to M&A activities. |
 | LIQUIDATION | Non-comparable financial statements due to liquidation. |
 | RANK2019_MISCLASSIFIED | Non-comparable financial statements: energy trading company incorrectly classified as eligible in the 2019 ranking. |
-| EXTREME_PROFITABILITY_RATIO | Extreme net-profit/sales ratio from a very small sales denominator; dominates profitability variation in regression analysis. |
+| HOLDING_NONCONSOLIDATED | Non-comparable financial statements: holding company reports non-consolidated financial statements. |
 
-The first three descriptions reflect the user's stated reasons for the four legacy exclusions. Globus's reason is the audit finding: 2022 net profit 16,728.85280 divided by sales 104.51613 yields a profit margin of 160.060010, accounting for 99.56% of ranking P3 profitability variation before its exclusion. This records an analytical influence issue, not an independently established accounting error or liquidation event.
+All exclusion reasons reflect the user's stated comparability/eligibility criteria. Globus is excluded because it is a holding company reporting non-consolidated financial statements, making its statements non-comparable. This supersedes the earlier provisional outlier-based reason. The earlier audit also found an extreme 2022 profit margin of 160.060010 (net profit 16,728.85280 / sales 104.51613), accounting for 99.56% of ranking P3 profitability variation before exclusion; that is a statistical finding, not the formal exclusion reason.
 
 The same names, NIPs, reason codes/descriptions, matched firm/row counts and statuses are printed at runtime and listed in each results workbook's existing README. A firm already absent upstream is not counted as newly removed. Manual removals are distinguished from subsequent missing-value exclusions.
 
