@@ -29,22 +29,36 @@ Do not optimise by replacing requested variables with “similar” alternatives
 ## Canonical files
 
 ### Annual canonical dataset
-- `Data_core_2019-2024.parquet`
-- `Data_core_2019-2024.xlsx`
+- `data_core_2018-2024.parquet`
+- `data_core_2018-2024.xlsx`
 
 This is the canonical annual firm-year dataset.
 It must remain stable and documented.
 
 ### Period canonical dataset
-- `Data_period_2019-2024.parquet`
-- `Data_period_2019-2024.xlsx`
+- `data_period_2018-2024.parquet`
+- `data_period_2018-2024.xlsx`
 
 This is the canonical firm-level period dataset derived from the annual canonical dataset.
 
 ### Legacy input
-- `Data_panel_2019-2024.parquet`
+- `data_panel_2018-2024.parquet`
 
 This is a legacy enriched panel input and is not the canonical master file.
+
+The 2018 extension supports the P1 lag based on 2018–2019. Main analysis outcomes remain 2019–2024. Earlier `data_*_2019-2024` files are retained as historical versions, not the active build targets.
+
+## File naming convention
+
+- Python scripts and shared modules: `code_<purpose>.py`
+- Datasets: `data_<structure>_<years>.parquet` and `.xlsx`
+- Results: `results_<analysis>.xlsx`; omit `period` from result filenames
+- Documentation: `documentation_<topic>.md`
+- Notebooks: `notebook_<purpose>.ipynb`
+- Historical results: `archive/results_<analysis>_<YYYY-MM-DD>.xlsx`; retain undated snapshots without inventing dates
+- Keep the special filename `AGENTS.md` unchanged
+
+Use lowercase filenames. Update imports, paths, workbook descriptions, and notebook references whenever a file is renamed. See `documentation_project.md` for the current workflow and migration map.
 
 ---
 
@@ -66,8 +80,8 @@ Do not manually edit canonical output files.
 
 Each canonical dataset must have a matching documentation file:
 
-- `Data_core_2019-2024_documentation.md`
-- `Data_period_2019-2024_documentation.md`
+- `documentation_core_2018-2024.md`
+- `documentation_period_2018-2024.md`
 
 Documentation must always match the current dataset.
 
@@ -141,7 +155,7 @@ Do not create alternative ratio sets unless explicitly asked.
 
 ## Core dataset rules
 
-`Data_core_2019-2024` must contain annual firm-year variables only.
+`data_core_2018-2024` must contain annual firm-year variables only.
 
 It may include:
 - identifiers
@@ -164,7 +178,7 @@ It must not include:
 
 ## Period dataset rules
 
-`Data_period_2019-2024` must contain one row per firm only.
+`data_period_2018-2024` must contain one row per firm only.
 
 It must include:
 - stable descriptors

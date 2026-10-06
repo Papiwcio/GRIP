@@ -1,18 +1,18 @@
-# Results_variable_diagnostics_and_trajectories
+# results_diagnostics_trajectories
 
 ## Purpose
 
-`Results_variable_diagnostics_and_trajectories.xlsx` is the structured pre-modelling diagnostics and trajectory-analysis workbook supporting the regressions in `Results_period_ols_scenarios.xlsx`.
+`results_diagnostics_trajectories.xlsx` is the structured pre-modelling diagnostics and trajectory-analysis workbook supporting the regressions in `results_ols_scenarios.xlsx`.
 
-The workbook is rebuilt directly and completely by `run_trajectory_analysis.py`. The script constructs the OLS-aligned diagnostic, correlation, trajectory and audit sheets. It does not write or replace the regression workbook.
+The workbook is rebuilt directly and completely by `code_diagnostics_trajectories.py`. The script constructs the OLS-aligned diagnostic, correlation, trajectory and audit sheets. It does not write or replace the regression workbook.
 
-`run_period_ols_scenarios.py` independently generates `Results_period_ols_scenarios.xlsx` only. It does not call the trajectory runner or write this diagnostics workbook.
+`code_ols_scenarios.py` independently generates `results_ols_scenarios.xlsx` only. It does not call the trajectory runner or write this diagnostics workbook.
 
-Shared scenario definitions, period definitions, model variables, interaction rules, winsorisation settings, and sample masks are sourced from `analysis_config.py`. After writing, `run_trajectory_analysis.py` reopens the workbook and fails if the sheet order differs or any required sheet is empty.
+Shared scenario definitions, period definitions, model variables, interaction rules, winsorisation settings, and sample masks are sourced from `code_config.py`. After writing, `code_diagnostics_trajectories.py` reopens the workbook and fails if the sheet order differs or any required sheet is empty.
 
 Input:
 
-- `Data_period_2018-2024.parquet`
+- `data_period_2018-2024.parquet`
 
 Main analytical window:
 
@@ -25,7 +25,7 @@ Role of 2018:
 
 ## Shared Scenarios
 
-Scenario definitions come from `analysis_config.get_scenario_definitions()` and are shared with OLS:
+Scenario definitions come from `code_config.get_scenario_definitions()` and are shared with OLS:
 
 - `ALL`
 - `MANUFACTURING`
@@ -121,6 +121,6 @@ Tab colours:
 
 ## Last Updated
 
-- Source script: `run_trajectory_analysis.py`
-- Output: `Results_variable_diagnostics_and_trajectories.xlsx`
+- Source script: `code_diagnostics_trajectories.py`
+- Output: `results_diagnostics_trajectories.xlsx`
 - Date: 2026-09-29

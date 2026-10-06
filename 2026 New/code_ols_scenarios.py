@@ -8,7 +8,7 @@ import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import pearsonr
 
-from analysis_config import (
+from code_config import (
     CATEGORICAL_METADATA,
     DEFAULT_REGRESSOR_RULES,
     INTERACTION_METADATA,
@@ -25,7 +25,7 @@ from analysis_config import (
     period_dependent_metadata,
     validate_scenario_alignment,
 )
-from analysis_helpers import build_shared_sample_counts, safe_numeric
+from code_helpers import build_shared_sample_counts, safe_numeric
 
 
 class StandardScaler:
@@ -39,13 +39,13 @@ class StandardScaler:
 #
 # To add a standard numeric regressor:
 # - add only its name to PERIOD_MODEL_SETTINGS["base_regressors"] in
-#   analysis_config.py, for example "roa"
+#   code_config.py, for example "roa"
 # The default column rule then creates roa_start_P1, roa_start_P2, roa_start_P3 automatically.
 #
 # Optional numeric labels, interpretations, standardisation rules, or column-pattern
 # overrides go in REGRESSOR_METADATA.
 #
-# Categorical controls and their metadata are defined in analysis_config.py.
+# Categorical controls and their metadata are defined in code_config.py.
 #
 # Ownership is controlled by shared include_owner and owner_column settings.
 # Owner labels and standardisation rules go in OWNER_METADATA.
@@ -53,21 +53,21 @@ class StandardScaler:
 # Lag growth is controlled by shared include_lag_growth and lag_growth_periods.
 # Lag-growth labels and standardisation rules go in LAG_GROWTH_METADATA.
 #
-# Interactions are optional and live in analysis_config.INTERACTION_METADATA. Set
+# Interactions are optional and live in code_config.INTERACTION_METADATA. Set
 # include=True to activate an interaction, include=False to ignore it, or use
 # INTERACTION_METADATA = {} for no interactions. Example: Foreign x
 # export_ratio uses variables ["owner_num", "export_ratio"] and is generated
 # automatically by period. Categorical interactions are not supported yet.
 #
 # To switch real vs nominal growth, edit the shared growth_mode setting in
-# analysis_config.py.
+# code_config.py.
 # The dependent variables and lag growth controls are generated from this setting.
 #
-# Scenario samples come from analysis_config.get_scenario_definitions().
+# Scenario samples come from code_config.get_scenario_definitions().
 CONFIG = {
     "analysis_name": "period_ols_scenarios",
-    "input_file": "Data_period_2018-2024.parquet",
-    "output_file": "Results_period_ols_scenarios.xlsx",
+    "input_file": "data_period_2018-2024.parquet",
+    "output_file": "results_ols_scenarios.xlsx",
     "sample_name": "ScenarioSamples",
     "base_sample_filter": "True",
     **get_period_model_settings(),
@@ -85,7 +85,7 @@ SHARED_SAMPLE_SCENARIOS = {
     if sample_name in SAMPLE_ORDER
 }
 
-ORIGINAL_RESULTS_FILE = "Results_period_ols.xlsx"
+ORIGINAL_RESULTS_FILE = "archive/results_ols_2026-05-06.xlsx"
 MIN_EXTRA_RESIDUAL_DF = 1
 
 OUTPUT_SHEETS = [
@@ -813,7 +813,7 @@ def validate_input_columns(df: pd.DataFrame, config: dict[str, Any], models: dic
         if p1_lag_column not in df.columns:
             raise ValueError(
                 f"Input file is missing required P1 lag-growth column: {p1_lag_column}. "
-                "Rebuild Data_period_2018-2024 with the 2018 sales extension."
+                "Rebuild data_period_2018-2024 with the 2018 sales extension."
             )
     missing = sorted(set(get_required_columns(config, models)).difference(df.columns))
     if missing:
@@ -3281,7 +3281,7 @@ def print_scenario_validation(
             print(warning)
     print("shared_sample_logic_imported: True")
     print("shared_period_definitions_imported: True")
-    print("analysis_helpers_imported: True")
+    print("code_helpers_imported: True")
     print("duplicate_sample_logic_removed: True")
     print("duplicate_period_logic_removed: True")
     print("workbook_generated_successfully: True")
@@ -3422,7 +3422,7 @@ if __name__ == "__main__":
 
 # Technical note
 #
-# Shared period-model settings and metadata are maintained in analysis_config.py.
+# Shared period-model settings and metadata are maintained in code_config.py.
 # This script adds only regression-specific paths and labels before normalising
 # that shared configuration.
 #
@@ -3431,10 +3431,10 @@ if __name__ == "__main__":
 # before model construction, validation, registry building, and workbook export.
 #
 # To add a new standard numeric variable, update PERIOD_MODEL_SETTINGS and, when
-# needed, REGRESSOR_METADATA in analysis_config.py.
+# needed, REGRESSOR_METADATA in code_config.py.
 #
 # To add a categorical control, update PERIOD_MODEL_SETTINGS and
-# CATEGORICAL_METADATA in analysis_config.py. The engine never guesses
+# CATEGORICAL_METADATA in code_config.py. The engine never guesses
 # categorical reference categories.
 #
 # Standardised beta outputs were removed to reduce duplicated interpretation.
@@ -3447,7 +3447,7 @@ if __name__ == "__main__":
 # missing dependent, regressor, or categorical-control values, supporting sample
 # transparency and bias checks.
 #
-# Interaction capability is controlled by analysis_config.INTERACTION_METADATA. When
+# Interaction capability is controlled by code_config.INTERACTION_METADATA. When
 # INTERACTION_METADATA is empty or all interaction include flags are False, the
 # model results contain no interactions. Interactions are useful for testing
 # whether one predictor modifies the effect of another, but main effects should

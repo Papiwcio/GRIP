@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from analysis_config import (
+from code_config import (
     PERFORMANCE_BAND_COLUMNS,
     PERFORMANCE_BAND_ORDER,
     PERIODS,
@@ -22,7 +22,7 @@ from analysis_config import (
     get_period_model_settings,
     validate_scenario_alignment,
 )
-from analysis_helpers import (
+from code_helpers import (
     apply_header_format,
     apply_safe_autofilter,
     freeze_and_hide_gridlines,
@@ -33,7 +33,7 @@ from analysis_helpers import (
     safe_share,
     set_table_column_widths,
 )
-from run_period_ols_scenarios import (
+from code_ols_scenarios import (
     CORRELATION_VARIANTS,
     build_appendix_full_matrices,
     build_correlation_long,
@@ -63,8 +63,8 @@ from run_period_ols_scenarios import (
 
 CONFIG = {
     "trajectory_family": "nominal",  # options: "real", "nominal"
-    "input_file": "Data_period_2018-2024.parquet",
-    "output_file": "Results_variable_diagnostics_and_trajectories.xlsx",
+    "input_file": "data_period_2018-2024.parquet",
+    "output_file": "results_diagnostics_trajectories.xlsx",
 }
 
 OUTPUT_SHEETS = [
@@ -116,7 +116,7 @@ def build_structure_readme(config: dict[str, Any]) -> pd.DataFrame:
     purpose = (
         "This workbook contains pre-modelling diagnostics and trajectory analysis. "
         "It supports the regression analysis reported separately in "
-        "Results_period_ols_scenarios.xlsx. The workbook first documents variables, "
+        "results_ols_scenarios.xlsx. The workbook first documents variables, "
         "sample composition, missingness and winsorisation impact. It then presents "
         "trajectory analysis and correlation diagnostics. Correlations are used to "
         "assess redundancy, direction and stability of associations before regression "
@@ -206,7 +206,7 @@ def build_structure_readme(config: dict[str, Any]) -> pd.DataFrame:
             "OLS alignment",
             "Check inclusion flags and scenario counts before comparing outputs.",
             (
-                "Results_period_ols_scenarios.xlsx contains regression estimates. "
+                "results_ols_scenarios.xlsx contains regression estimates. "
                 "This workbook contains the pre-modelling diagnostics and trajectory "
                 "evidence supporting those estimates."
             ),
@@ -563,7 +563,7 @@ def build_scenario_summary(
                 "included_in_ols": result.get("models_estimated", 0) > 0,
                 "included_in_trajectory_diagnostics": not filtered_df.empty,
                 "shared_definition_source": (
-                    "analysis_config.get_scenario_definitions"
+                    "code_config.get_scenario_definitions"
                 ),
             }
         )
@@ -1833,7 +1833,7 @@ def print_validation(
     print(f"performance_band_row_shares_valid: {performance_row_shares_valid}")
     print(f"profile_variables_included: {list(profile_variables_included)}")
     print(f"profile_variables_skipped: {profile_variables_skipped}")
-    print("analysis_helpers_imported: True")
+    print("code_helpers_imported: True")
     print(
         "sector_en present and used as categorical control: "
         f"{'sector_en' in df.columns}"

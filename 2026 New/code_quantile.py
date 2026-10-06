@@ -9,9 +9,9 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import run_period_ols_scenarios as ols_spec
+import code_ols_scenarios as ols_spec
 
-from analysis_config import (
+from code_config import (
     PERIODS,
     QUANTILE_ORDER,
     SAMPLE_ORDER,
@@ -23,7 +23,7 @@ from analysis_config import (
     period_dependent_metadata,
     resolve_variable_order,
 )
-from analysis_helpers import (
+from code_helpers import (
     apply_header_format,
     apply_safe_autofilter,
     build_shared_sample_counts,
@@ -38,7 +38,7 @@ from analysis_helpers import (
 CONFIG = {
     "analysis_name": "period_quantile_regression",
     "input_file": ols_spec.CONFIG["input_file"],
-    "output_file": "Results_period_quantile.xlsx",
+    "output_file": "results_quantile.xlsx",
     **get_period_model_settings(),
     "quantiles": [0.10, 0.50, 0.90],
     "preferred_model_variant": "winsor_std",
@@ -607,7 +607,7 @@ def build_readme(config: dict[str, Any]) -> pd.DataFrame:
         ("Dependent variable preparation", "The source growth variable is winsorised and then standardised within the scenario-period estimation sample according to the settings below. Logs require strictly positive endpoint sales; otherwise growth is missing."),
         ("Quantiles", ", ".join(str(q) for q in config["quantiles"])),
         ("Preferred model variant", config["preferred_model_variant"]),
-        ("Shared model controls", "analysis_config.PERIOD_MODEL_SETTINGS; design matrices and metadata use the same builders as OLS scenarios."),
+        ("Shared model controls", "code_config.PERIOD_MODEL_SETTINGS; design matrices and metadata use the same builders as OLS scenarios."),
         ("Base regressors", ", ".join(config["base_regressors"])),
         ("Ownership", f"include_owner={config['include_owner']}; column={config['owner_column']}"),
         ("Winsorisation", f"Dependent variable only; lower={config['winsor_lower']}; upper={config['winsor_upper']} within each scenario-period estimation sample."),
@@ -904,7 +904,7 @@ def validate_input_columns(df: pd.DataFrame, config: dict[str, Any]) -> None:
         if p1_lag_column not in df.columns:
             raise ValueError(
                 f"Input file is missing required P1 lag-growth column: {p1_lag_column}. "
-                "Rebuild Data_period_2018-2024 with the 2018 sales extension."
+                "Rebuild data_period_2018-2024 with the 2018 sales extension."
             )
     required = {complete_flag_col(config), *categorical_columns(config)}
     generated_interactions = {
@@ -1126,8 +1126,8 @@ def print_validation(
     print("Generated model specifications:")
     for period in config["periods"]:
         print(f"{period}: dependent={dependent_col(config, period)}; regressors={period_regressors(config, period)}")
-    print("analysis_config_imported: True")
-    print("analysis_helpers_imported: True")
+    print("code_config_imported: True")
+    print("code_helpers_imported: True")
     print(f"output_sheet_names_valid: {written_sheets == OUTPUT_SHEETS}")
     print(f"quantile_labels_present: {quantile_labels_present}")
     print(f"raw_baseline_variants_run: {raw_variants_run}")

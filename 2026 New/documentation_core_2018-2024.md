@@ -1,16 +1,16 @@
-# Dataset: Data_core_2018-2024
+# Dataset: data_core_2018-2024
 Version: v1.1
 Date: 2026-06-27
 Changes:
 - Initial canonical dataset build
 - Extended coverage to 2018 for P1 lag growth
-- Aligned the canonical schema with the columns currently available in `Data_panel_2018-2024.parquet`
-- Read `sector` directly from `Data_panel_2018-2024.parquet` and derived `sector_en`
+- Aligned the canonical schema with the columns currently available in `data_panel_2018-2024.parquet`
+- Read `sector` directly from `data_panel_2018-2024.parquet` and derived `sector_en`
 - Filled stable descriptors within firm from the first non-missing 2019-2024 observation
 
 ## Purpose
 
-`Data_core_2018-2024.parquet` is the canonical cleaned annual master panel derived from `Data_panel_2018-2024.parquet`.
+`data_core_2018-2024.parquet` is the canonical cleaned annual master panel derived from `data_panel_2018-2024.parquet`.
 
 The 2018 observation is included only to supply sales for the 2018 -> 2019 lag-growth calculation used by P1 models. Main growth outcomes, trajectories, `SGrowth_NR`, and start-of-period covariates continue to begin in 2019.
 
@@ -18,16 +18,16 @@ Unit of observation: one row per firm (`nip`) per year (`year`).
 
 ## Source and outputs
 
-- Input: `Data_panel_2018-2024.parquet`
-- Production script: `build_core_panel.py`
+- Input: `data_panel_2018-2024.parquet`
+- Production script: `code_build_core.py`
 - Outputs:
-  - `Data_core_2018-2024.parquet`
-  - `Data_core_2018-2024.xlsx`
-- Validation notebook: `check_core_panel.ipynb`
+  - `data_core_2018-2024.parquet`
+  - `data_core_2018-2024.xlsx`
+- Validation notebook: `notebook_check_core.ipynb`
 
 ## Build rules
 
-1. Read the annual panel from `Data_panel_2018-2024.parquet`
+1. Read the annual panel from `data_panel_2018-2024.parquet`
 2. Keep one row per (`nip`, `year`)
 3. Keep `rank_2019` and create `in_rank_2019`
 4. Drop `rank_2020` to `rank_2024`
@@ -132,8 +132,8 @@ Total columns: `59`
 ### Structural descriptors
 
 - `in_rank_2019`: `1` if `rank_2019` is non-missing, otherwise `0`.
-- `sector`: retained as supplied in `Data_panel_2018-2024.parquet`; missing values remain missing.
-- `sector_en`: translated from `sector` using the fixed mapping in `build_core_panel.py`.
+- `sector`: retained as supplied in `data_panel_2018-2024.parquet`; missing values remain missing.
+- `sector_en`: translated from `sector` using the fixed mapping in `code_build_core.py`.
   - `budownictwo` -> `construction`
   - `chemia` -> `chemicals`
   - `energetyka` -> `energy`

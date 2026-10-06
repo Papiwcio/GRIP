@@ -1,24 +1,24 @@
-# Results_period_ols_scenarios
+# results_ols_scenarios
 
 ## Purpose
 
-`run_period_ols_scenarios.py` is the current master OLS regression pipeline for the 2026 period analysis.
+`code_ols_scenarios.py` is the current master OLS regression pipeline for the 2026 period analysis.
 
-It estimates scenario-based OLS models from `Data_period_2018-2024.parquet` and exports:
+It estimates scenario-based OLS models from `data_period_2018-2024.parquet` and exports:
 
-- `Results_period_ols_scenarios.xlsx`
+- `results_ols_scenarios.xlsx`
 
 Current script roles:
 
-- Main OLS scenario runner: `run_period_ols_scenarios.py`
-- Descriptive trajectory runner: `run_trajectory_analysis.py`
-- Shared analytical definitions: `analysis_config.py`
+- Main OLS scenario runner: `code_ols_scenarios.py`
+- Descriptive trajectory runner: `code_diagnostics_trajectories.py`
+- Shared analytical definitions: `code_config.py`
 
 The older single-sample workbook path is no longer the primary documented workflow. Current interpretation should use the scenario workbook.
 
 ## Input
 
-- `Data_period_2018-2024.parquet`
+- `data_period_2018-2024.parquet`
 
 The 2018 data is used only for the 2018-2019 lag-growth variable included in P1 models. Main dependent variables, trajectories, `SGrowth_NR`, and FULL-period growth remain based on 2019-2024.
 
@@ -155,7 +155,7 @@ Categorical dummies, ownership dummy, and intercept are excluded from standardis
 
 ## Workbook Structure
 
-`Results_period_ols_scenarios.xlsx` contains:
+`results_ols_scenarios.xlsx` contains:
 
 - `README`
 - `Compare_Main`
@@ -224,13 +224,13 @@ Rows use display labels from the variable registry.
 
 Pre-modelling descriptive, missingness, winsorisation, trajectory, and correlation
 diagnostics are reported separately in
-`Results_variable_diagnostics_and_trajectories.xlsx`. This keeps regression
+`results_diagnostics_trajectories.xlsx`. This keeps regression
 results separate from pre-modelling diagnostics while preserving the same shared
 scenario definitions and exact model-variable logic.
 
-`run_period_ols_scenarios.py` writes only the regression workbook.
-`Results_variable_diagnostics_and_trajectories.xlsx` is generated independently
-by `run_trajectory_analysis.py` using the shared definitions in `analysis_config.py`.
+`code_ols_scenarios.py` writes only the regression workbook.
+`results_diagnostics_trajectories.xlsx` is generated independently
+by `code_diagnostics_trajectories.py` using the shared definitions in `code_config.py`.
 
 ### Model_Summary_Long
 
@@ -333,7 +333,7 @@ The workbook is designed so that interpretation can start from `README`, `Compar
 
 ## Last Updated For
 
-- Script: `run_period_ols_scenarios.py`
-- Output file: `Results_period_ols_scenarios.xlsx`
+- Script: `code_ols_scenarios.py`
+- Output file: `results_ols_scenarios.xlsx`
 - Main change covered: interaction renamed to `export_ratio_x_ln_sales`; interaction columns now follow starting-point regressor periods, with P1 and FULL sharing `export_ratio_x_ln_sales_start_P1`
 - Date: 2026-07-01

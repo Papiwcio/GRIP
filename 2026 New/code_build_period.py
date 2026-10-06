@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 
-INPUT_PATH = Path("Data_core_2018-2024.parquet")
-OUTPUT_PARQUET_PATH = Path("Data_period_2018-2024.parquet")
-OUTPUT_XLSX_PATH = Path("Data_period_2018-2024.xlsx")
+INPUT_PATH = Path("data_core_2018-2024.parquet")
+OUTPUT_PARQUET_PATH = Path("data_period_2018-2024.parquet")
+OUTPUT_XLSX_PATH = Path("data_period_2018-2024.xlsx")
 
 KEY_COLUMN = "nip"
 YEAR_COLUMN = "year"

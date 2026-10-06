@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 
-INPUT_PATH = Path("Data_panel_2018-2024.parquet")
-OUTPUT_PARQUET_PATH = Path("Data_core_2018-2024.parquet")
-OUTPUT_XLSX_PATH = Path("Data_core_2018-2024.xlsx")
+INPUT_PATH = Path("data_panel_2018-2024.parquet")
+OUTPUT_PARQUET_PATH = Path("data_core_2018-2024.parquet")
+OUTPUT_XLSX_PATH = Path("data_core_2018-2024.xlsx")
 
 PRICE_INDEX_BY_YEAR = {
     # Statistics Poland annual CPI for 2019 versus 2018 was 1.023;
@@ -488,7 +488,7 @@ def print_build_summary(df: pd.DataFrame, metadata: dict) -> None:
         "Missing sales values filled from source przychody: "
         f"{metadata['sales_filled_from_przychody']:,}"
     )
-    print("sector is taken directly from Data_panel_2018-2024.parquet.")
+    print("sector is taken directly from data_panel_2018-2024.parquet.")
     print(f"Firms without an available sector descriptor: {metadata['firms_without_sector']:,}")
     print(f"sector missing rate: {metadata['sector_missing_rate']:.6f}")
     print(f"sector_en missing rate: {metadata['sector_en_missing_rate']:.6f}")

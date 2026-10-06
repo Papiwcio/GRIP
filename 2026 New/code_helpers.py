@@ -7,7 +7,7 @@ growth and does not change the main 2019-2024 analytical periods.
 This file contains reusable helper functions for formatting, validation,
 sample counting, safe statistics and workbook writing utilities.
 
-Stable analytical definitions remain in analysis_config.py.
+Stable analytical definitions remain in code_config.py.
 Script-specific modelling logic remains in individual runner scripts.
 """
 
@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from analysis_config import SAMPLE_ORDER, build_sample_mask
+from code_config import SAMPLE_ORDER, build_sample_mask
 
 
 def safe_numeric(series: pd.Series) -> pd.Series:

@@ -1,8 +1,8 @@
-# Data_period_2018-2024
+# data_period_2018-2024
 
 ## Purpose
 
-`Data_period_2018-2024.parquet` is the canonical firm-level period dataset derived from `Data_core_2018-2024.parquet`.
+`data_period_2018-2024.parquet` is the canonical firm-level period dataset derived from `data_core_2018-2024.parquet`.
 
 It is a single master dataset with two parallel measurement layers:
 
@@ -17,7 +17,7 @@ One row per firm (`nip`).
 
 ## Excel analysis formatting
 
-The Excel export is rebuilt by `build_period_dataset.py` with the same blue working-sheet and orange technical-sheet header colours used in the results workbooks. It retains the existing `Data` and `Performance_Thresholds` tabs and exact column names.
+The Excel export is rebuilt by `code_build_period.py` with the same blue working-sheet and orange technical-sheet header colours used in the results workbooks. It retains the existing `Data` and `Performance_Thresholds` tabs and exact column names.
 
 - `Data` is the native Excel Table `PeriodData`, with filters, banded rows, and the header plus `nip` and `company` frozen. It can be selected directly as a PivotTable source.
 - `Performance_Thresholds` is the native Excel Table `PerformanceThresholds`, with filters, banded rows, and the header plus the three benchmark identifier columns frozen.
@@ -475,7 +475,7 @@ Descriptors are collapsed using observations from 2019 onward; 2018 is not used 
 
 `sector` and `sector_en` are required outputs. They are collapsed from 2019-2024 observations only; 2018 cannot overwrite them. The unavailable `business_start_year`, `gpw`, and `incorporation_year_krs` columns remain omitted.
 
-Sector values originate directly from `Data_panel_2018-2024.parquet` through the annual canonical dataset.
+Sector values originate directly from `data_panel_2018-2024.parquet` through the annual canonical dataset.
 
 ## Missing-data and denominator handling
 
@@ -498,7 +498,7 @@ Regression scripts must explicitly choose the real or nominal dependent-variable
 
 ## Build notes
 
-- the only source file is `Data_core_2018-2024.parquet`
+- the only source file is `data_core_2018-2024.parquet`
 - the output contains exactly one row per firm
 - 2018 sales is used only for the six P1 lag-growth variables
 - main growth, trajectories, `SGrowth_NR`, performance classifications, and P1 start covariates continue to begin in 2019
@@ -508,7 +508,7 @@ Regression scripts must explicitly choose the real or nominal dependent-variable
 
 ## Last Updated For
 
-- Script: `build_period_dataset.py`
-- Output file: `Data_period_2018-2024.parquet` and `Data_period_2018-2024.xlsx`
+- Script: `code_build_period.py`
+- Output file: `data_period_2018-2024.parquet` and `data_period_2018-2024.xlsx`
 - Main change covered: 2018 sales support for P1 lag growth, alignment with currently available source descriptors, and preservation of 2019-2024 main outcomes, trajectories, `SGrowth_NR`, and start covariates
 - Date: 2026-06-27

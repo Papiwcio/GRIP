@@ -2,9 +2,9 @@
 
 ## Reproduction and specification
 
-Run `python3 run_quantile_regression.py` from this directory. The input is `Data_period_2018-2024.parquet`; the output is `Results_period_quantile.xlsx`. Dataset values and canonical dataset schemas are not modified by this analysis.
+Run `python3 code_quantile.py` from this directory. The input is `data_period_2018-2024.parquet`; the output is `results_quantile.xlsx`. Dataset values and canonical dataset schemas are not modified by this analysis.
 
-The runner reads `analysis_config.PERIOD_MODEL_SETTINGS`, the same control panel used by `run_period_ols_scenarios.py`. It reuses the OLS model, interaction, variable metadata, categorical-level, and design-matrix builders. Changes to the shared model settings therefore apply to both analyses. The quantile runner currently estimates the OLS `winsor_std` specification at Q10, Q50, and Q90; it does not estimate OLS's three other variants.
+The runner reads `code_config.PERIOD_MODEL_SETTINGS`, the same control panel used by `code_ols_scenarios.py`. It reuses the OLS model, interaction, variable metadata, categorical-level, and design-matrix builders. Changes to the shared model settings therefore apply to both analyses. The quantile runner currently estimates the OLS `winsor_std` specification at Q10, Q50, and Q90; it does not estimate OLS's three other variants.
 
 The dependent variable is **nominal annualised log sales growth**, based on current-price `sales`. It is measured in log points per year, not the log sales level or CAGR. Its source formulas are `(ln(sales_2020) - ln(sales_2019)) / 1` for P1, `(ln(sales_2022) - ln(sales_2020)) / 2` for P2, `(ln(sales_2024) - ln(sales_2022)) / 2` for P3, and `(ln(sales_2024) - ln(sales_2019)) / 5` for FULL.
 
