@@ -15,6 +15,18 @@ No separate real-only or nominal-only dataset is created.
 
 One row per firm (`nip`).
 
+## Excel analysis formatting
+
+The Excel export is rebuilt by `build_period_dataset.py` with the same blue working-sheet and orange technical-sheet header colours used in the results workbooks. It retains the existing `Data` and `Performance_Thresholds` tabs and exact column names.
+
+- `Data` is the native Excel Table `PeriodData`, with filters, banded rows, and the header plus `nip` and `company` frozen. It can be selected directly as a PivotTable source.
+- `Performance_Thresholds` is the native Excel Table `PerformanceThresholds`, with filters, banded rows, and the header plus the three benchmark identifier columns frozen.
+- Headers wrap; column widths and descriptor row heights are fitted for readability. Gridlines are hidden and the opening zoom is 90%.
+- Simple growth rates, CAGR, percentage ratios, and threshold/tail/population growth statistics display as percentages with two decimal places. Log growth, annualised log growth, logarithms, asset turnover, and equity multipliers display as decimal values with four decimal places. Log growth remains in log points and is not displayed as simple percentage growth.
+- Productivity measures and base-100 indices display with thousands separators and two decimal places. Ranks, codes, flags, and sample counts display as integers. `nip` remains text.
+
+These are display formats only: stored precision, missing values, identifiers, variable definitions, classifications, and the Parquet schema are unchanged. No formulas, aggregation, clipping, or imputation are added by formatting. Rebuild the script to refresh both tables after data changes.
+
 ## Period definitions
 
 - `P1 = 2019 -> 2020`
@@ -392,6 +404,18 @@ Threshold construction:
 - `p10` and `p90` are computed once on the fixed benchmark population for each column
 - thresholds do not change later when the dataset is filtered in Excel, pivot tables, or regression scripts
 - threshold values (`p10` and `p90`) are exported to the Excel output in a separate sheet (`Performance_Thresholds`) for transparency and reproducibility
+
+`Performance_Thresholds` also contains the following arithmetic means of firm-level annualised sales growth (CAGR) over 2019–2024:
+
+| Column | Formula / rule |
+| --- | --- |
+| `mean_growth_bottom10` | Mean growth among benchmark firms with growth <= `p10` |
+| `mean_growth_top10` | Mean growth among benchmark firms with growth >= `p90` |
+| `mean_growth_population` | Mean growth among all eligible firms in the row's benchmark population |
+
+All three means use the same fixed benchmark sample as the row's thresholds and are unweighted across firms. For `all`, the population mean covers all eligible firms; for `rank2019` and `manu2019`, it covers the corresponding benchmark subset. The nominal rows use `ngrowth_ann_2019_2024`; the real rows use `rgrowth_ann_2019_2024`. Values are stored as decimal rates (0.10 means 10% per year), not total five-year growth or annualised log growth. `p10` and `p90` remain percentile cutoffs, not group means, and use pandas' default linear interpolation.
+
+Missing growth values are excluded, never replaced with zero. Endpoint sales must satisfy the positive-value validity rule above, which excludes zero denominators. An empty sample or empty tail returns `NaN` for its mean; the build rejects empty benchmark samples. All firms tied at a cutoff are included in its tail, so tail membership need not equal exactly 10% of the benchmark. These descriptive means are not clipped or winsorised. Existing performance classifications continue to use the percentile cutoffs.
 
 Classification rules:
 

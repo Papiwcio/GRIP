@@ -446,10 +446,63 @@ def validate_diagnostic_content(tables: dict[str, pd.DataFrame]) -> None:
             "04_WINSOR_IMPACT n_changed must be positive and no larger than n_before."
         )
 
+    expected_corr_with_dv_columns = [
+        "scenario",
+        "period",
+        "variant",
+        "source_dataframe",
+        "dependent_variable",
+        "dependent_variable_effective",
+        "predictor",
+        "correlation",
+        "p_value",
+        "N",
+    ]
+    for sheet_name, expected_variant in [
+        ("22_CORR_WITH_DV_BASELINE", "baseline"),
+        ("23_CORR_WITH_DV_WINSOR", "winsor"),
+    ]:
+        table = tables[sheet_name]
+        if table.columns.tolist() != expected_corr_with_dv_columns:
+            raise ValueError(
+                f"{sheet_name} columns are not in the required order: "
+                f"{table.columns.tolist()}"
+            )
+        if set(table["variant"].dropna().astype(str)) != {expected_variant}:
+            raise ValueError(
+                f"{sheet_name} contains variants other than {expected_variant!r}."
+            )
+        valid_p_values = table["p_value"].dropna().between(0, 1, inclusive="both")
+        if not valid_p_values.all():
+            raise ValueError(f"{sheet_name} contains p-values outside [0, 1].")
+        if not table["correlation"].notna().eq(table["p_value"].notna()).all():
+            raise ValueError(
+                f"{sheet_name} correlation and p_value availability do not match."
+            )
+
+    correlation_long = tables["90_CORR_LONG_ALL"]
+    required_long_columns = {"correlation", "p_value", "N"}
+    missing_long_columns = sorted(required_long_columns.difference(correlation_long.columns))
+    if missing_long_columns:
+        raise ValueError(
+            "90_CORR_LONG_ALL is missing required correlation fields: "
+            f"{missing_long_columns}"
+        )
+    if not correlation_long["correlation"].notna().eq(correlation_long["p_value"].notna()).all():
+        raise ValueError(
+            "90_CORR_LONG_ALL correlation and p_value availability do not match."
+        )
+
+    for sheet_name in ["20_CORR_MAIN_BASELINE", "21_CORR_MAIN_WINSOR"]:
+        if "p_value" in tables[sheet_name].columns:
+            raise ValueError(f"{sheet_name} must remain a clean matrix without p-values.")
+
     expected_scenarios = set(SCENARIO_ORDER)
     for sheet_name in [
         "20_CORR_MAIN_BASELINE",
         "21_CORR_MAIN_WINSOR",
+        "22_CORR_WITH_DV_BASELINE",
+        "23_CORR_WITH_DV_WINSOR",
         "31_SCENARIO_DIAGNOSTICS",
     ]:
         actual_scenarios = set(
@@ -1477,6 +1530,9 @@ def create_formats(workbook) -> dict[str, object]:
         "percent": workbook.add_format({"num_format": "0.0%"}),
         "integer": workbook.add_format({"num_format": "#,##0"}),
         "decimal": workbook.add_format({"num_format": "0.0000"}),
+        "p_value": workbook.add_format(
+            {"num_format": '[<0.0001]"<0.0001";0.0000'}
+        ),
         "growth_percent": workbook.add_format({"num_format": "0.0%"}),
         "index": workbook.add_format({"num_format": "0.0"}),
         "wrap": workbook.add_format({"text_wrap": True, "valign": "top"}),
@@ -1549,7 +1605,9 @@ def apply_table_number_formats(worksheet, df: pd.DataFrame, formats: dict[str, o
                     continue
             else:
                 lower_name = str(column_name).lower()
-                if "share" in lower_name:
+                if lower_name == "p_value":
+                    cell_format = formats["p_value"]
+                elif "share" in lower_name:
                     cell_format = formats["percent"]
                 elif lower_name in count_columns or lower_name.endswith("_count"):
                     cell_format = formats["integer"]
@@ -1789,9 +1847,19 @@ def print_validation(
         "winsor_impact_positive_n_changed: "
         f"{bool(winsor_impact['n_changed'].gt(0).all())}"
     )
+    print(
+        "correlation_p_values_written: "
+        f"{all('p_value' in tables[sheet].columns for sheet in ['22_CORR_WITH_DV_BASELINE', '23_CORR_WITH_DV_WINSOR', '90_CORR_LONG_ALL'])}"
+    )
+    print(
+        "correlation_matrix_p_values_omitted: "
+        f"{all('p_value' not in tables[sheet].columns for sheet in ['20_CORR_MAIN_BASELINE', '21_CORR_MAIN_WINSOR'])}"
+    )
     for sheet_name in [
         "20_CORR_MAIN_BASELINE",
         "21_CORR_MAIN_WINSOR",
+        "22_CORR_WITH_DV_BASELINE",
+        "23_CORR_WITH_DV_WINSOR",
         "31_SCENARIO_DIAGNOSTICS",
     ]:
         scenario_coverage = (

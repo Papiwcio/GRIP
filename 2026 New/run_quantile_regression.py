@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import warnings
+import textwrap
 
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+
+import run_period_ols_scenarios as ols_spec
 
 from analysis_config import (
     PERIODS,
@@ -16,6 +19,8 @@ from analysis_config import (
     SCENARIO_ORDER,
     VARIABLE_LABELS,
     build_sample_mask,
+    get_period_model_settings,
+    period_dependent_metadata,
     resolve_variable_order,
 )
 from analysis_helpers import (
@@ -28,54 +33,29 @@ from analysis_helpers import (
 )
 
 
+# Model controls come from the same shared specification as OLS scenarios.
+# Quantile-specific estimator and output settings remain local.
 CONFIG = {
     "analysis_name": "period_quantile_regression",
-    "input_file": "Data_period_2018-2024.parquet",
+    "input_file": ols_spec.CONFIG["input_file"],
     "output_file": "Results_period_quantile.xlsx",
-    "growth_mode": "nominal",
-    "periods": ["P1", "P2", "P3", "FULL"],
+    **get_period_model_settings(),
     "quantiles": [0.10, 0.50, 0.90],
     "preferred_model_variant": "winsor_std",
-    "winsorise_dependent": True,
-    "winsor_lower": 0.01,
-    "winsor_upper": 0.99,
-    "standardise_dependent": True,
-    "standardise_regressors": True,
     "quantreg_settings": {
         "max_iter": 5000,
         "p_tol": 1e-6,
     },
 }
 
-BASE_REGRESSORS = [
-    "ln_sales",
-    "profit_margin",
-    "export_ratio",
-    "asset_turnover",
-    "capital_ratio",
-    "sales_per_employee",
-]
-OWNER_COLUMN = "owner_num"
-CATEGORICAL_CONTROLS = ["sector_en"]
-LAG_GROWTH_PERIODS = ["P1", "P2", "P3"]
 
-CATEGORICAL_METADATA = {
-    "sector_en": {
-        "reference": "production",
-        "display_prefix": "sector: ",
-        "interpretation_template": "sector dummy relative to production reference category",
-    }
-}
+def shared_model_config(config: dict[str, Any]) -> dict[str, Any]:
+    return ols_spec.normalise_config(config)
 
-INTERACTION_METADATA = {
-    "foreign_x_size_ratio": {
-        "variables": ["export_ratio", "ln_sales"],
-        "display_name": "export_ratio × ln_sales",
-        "interpretation": "interaction between export intensity and company size",
-        "standardise": True,
-        "include": True,
-    }
-}
+
+def categorical_columns(config: dict[str, Any]) -> list[str]:
+    return ols_spec.get_categorical_columns(shared_model_config(config))
+
 
 SCENARIOS = {name: metadata["filter"] for name, metadata in SCENARIO_METADATA.items()}
 missing = set(SCENARIO_ORDER) - set(SCENARIOS.keys())
@@ -229,32 +209,19 @@ def lag_growth_col(config: dict[str, Any], period: str) -> str:
     return f"lag_{get_growth_prefix(config)}growth_log_ann_{period}"
 
 
-def regressor_period(period: str) -> str:
-    return "P1" if period == "FULL" else period
-
-
-def regressor_col(base_name: str, period: str) -> str:
-    return f"{base_name}_start_{regressor_period(period)}"
-
-
 def active_interactions() -> list[dict[str, Any]]:
-    return [
-        {"name": name, **metadata}
-        for name, metadata in INTERACTION_METADATA.items()
-        if metadata.get("include") is True
-    ]
+    return ols_spec.get_active_interactions()
 
 
 def interaction_col(name: str, period: str) -> str:
-    return f"{name}_{period}"
+    return ols_spec.build_interaction_column_name(name, period)
 
 
-def resolve_interaction_source(variable_name: str, period: str) -> str:
-    if variable_name in BASE_REGRESSORS:
-        return regressor_col(variable_name, period)
-    if variable_name == OWNER_COLUMN:
-        return OWNER_COLUMN
-    raise ValueError(f"Unsupported interaction variable: {variable_name}")
+def resolve_interaction_source(config: dict[str, Any], variable_name: str, period: str) -> str:
+    return ols_spec.resolve_interaction_variable(
+        shared_model_config(config), variable_name,
+        ols_spec.get_regressor_period_for_model(period),
+    )
 
 
 def scenario_sample_name(scenario_name: str) -> str:
@@ -298,130 +265,31 @@ def apply_complete_filter(df: pd.DataFrame, config: dict[str, Any], scenario_nam
 
 
 def add_interaction_columns(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
-    output = df.copy()
-    for period in config["periods"]:
-        for interaction in active_interactions():
-            sources = [
-                resolve_interaction_source(variable_name, period)
-                for variable_name in interaction["variables"]
-            ]
-            output[interaction_col(interaction["name"], period)] = (
-                safe_numeric(output[sources[0]]) * safe_numeric(output[sources[1]])
-            )
-    return output
+    shared = shared_model_config(config)
+    return ols_spec.add_interaction_columns(df, shared, ols_spec.build_models(shared))
 
 
 def period_regressors(config: dict[str, Any], period: str) -> list[str]:
-    regressors = [regressor_col(base_name, period) for base_name in BASE_REGRESSORS]
-    regressors.append(OWNER_COLUMN)
-    regressors.extend(interaction_col(interaction["name"], period) for interaction in active_interactions())
-    if period in LAG_GROWTH_PERIODS:
-        regressors.append(lag_growth_col(config, period))
-    return regressors
+    shared = shared_model_config(config)
+    return ols_spec.build_models(shared)[period]["regressors"]
 
 
 def variable_registry(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    registry: dict[str, dict[str, Any]] = {}
-    for order, base_name in enumerate(BASE_REGRESSORS, start=10):
-        for period in config["periods"]:
-            column = regressor_col(base_name, period)
-            registry[column] = {
-                "display_name": VARIABLE_LABELS.get(column, VARIABLE_LABELS.get(base_name, base_name)),
-                "variable_type": "numeric",
-                "standardise": True,
-                "source": base_name,
-                "order": order,
-            }
-    registry[OWNER_COLUMN] = {
-        "display_name": "Foreign",
-        "variable_type": "dummy",
-        "standardise": False,
-        "source": "owner",
-        "order": 1000,
-    }
-    for order, interaction in enumerate(active_interactions(), start=1500):
-        for period in config["periods"]:
-            column = interaction_col(interaction["name"], period)
-            registry[column] = {
-                "display_name": interaction["display_name"],
-                "variable_type": "interaction",
-                "standardise": bool(interaction["standardise"]),
-                "source": "interaction",
-                "order": order,
-            }
-    for period in LAG_GROWTH_PERIODS:
-        column = lag_growth_col(config, period)
-        registry[column] = {
-            "display_name": VARIABLE_LABELS.get(column, "lag_growth_log_ann"),
-            "variable_type": "lag",
-            "standardise": True,
-            "source": "lag_growth",
-            "order": 3000,
-        }
-    registry["const"] = {
-        "display_name": "const",
-        "variable_type": "constant",
-        "standardise": False,
-        "source": "constant",
-        "order": 4000,
-    }
-    return registry
+    shared = shared_model_config(config)
+    return ols_spec.build_variable_registry(shared, ols_spec.build_models(shared))
 
 
-def categorical_levels(df: pd.DataFrame) -> dict[str, list[str]]:
-    levels = {}
-    for column in CATEGORICAL_CONTROLS:
-        observed = sorted(df[column].dropna().astype(str).unique().tolist())
-        reference = CATEGORICAL_METADATA[column]["reference"]
-        configured_levels = CATEGORICAL_METADATA[column].get("levels")
-        if configured_levels:
-            configured_levels = [str(level) for level in configured_levels]
-            if reference not in configured_levels:
-                raise ValueError(f"Reference category {reference!r} is missing from configured levels for {column!r}.")
-            unexpected = sorted(set(observed).difference(configured_levels))
-            if unexpected:
-                raise ValueError(f"Unexpected categories for {column!r}: {unexpected}.")
-            levels[column] = [reference] + [level for level in configured_levels if level != reference]
-            continue
-        if reference not in observed:
-            raise ValueError(f"Reference category {reference!r} missing for {column!r}.")
-        levels[column] = [reference] + [level for level in observed if level != reference]
-    return levels
+def categorical_levels(df: pd.DataFrame, config: dict[str, Any]) -> dict[str, list[str]]:
+    return ols_spec.get_categorical_levels(df, shared_model_config(config))
 
 
 def add_categorical_registry(
     registry: dict[str, dict[str, Any]],
     levels: dict[str, list[str]],
+    config: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    output = dict(registry)
-    for order, column in enumerate(CATEGORICAL_CONTROLS, start=2000):
-        metadata = CATEGORICAL_METADATA[column]
-        for level in levels[column]:
-            raw_name = f"{column}_{level}"
-            is_reference = str(level) == str(metadata["reference"])
-            output[raw_name] = {
-                "display_name": (
-                    f"{metadata['display_prefix']}reference: {level}"
-                    if is_reference
-                    else f"{metadata['display_prefix']}{level}"
-                ),
-                "variable_type": "categorical_reference" if is_reference else "categorical",
-                "standardise": False,
-                "source": column,
-                "order": order,
-            }
-    return output
-
-
-def standardize_frame(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    output = frame.copy()
-    for column in columns:
-        mean = output[column].mean()
-        std = output[column].std(ddof=0)
-        if pd.isna(std) or std == 0:
-            std = 1.0
-        output[column] = (output[column] - mean) / std
-    return output
+    shared = shared_model_config(config)
+    return {**registry, **ols_spec.build_variable_registry(shared, ols_spec.build_models(shared), levels)}
 
 
 def winsorize_series(series: pd.Series, lower_q: float, upper_q: float) -> tuple[pd.Series, float, float, int]:
@@ -442,38 +310,11 @@ def build_design_matrix(
     registry: dict[str, dict[str, Any]],
     config: dict[str, Any],
 ) -> tuple[pd.DataFrame, list[str], list[str]]:
-    numeric_regressors = list(regressors)
-    x_numeric = estimation_df[numeric_regressors].apply(safe_numeric).astype(float)
-    included = []
-    excluded = []
-    if config["standardise_regressors"]:
-        included = [
-            column
-            for column in numeric_regressors
-            if registry.get(column, {}).get("standardise", False)
-            and registry.get(column, {}).get("variable_type") in {"numeric", "lag", "interaction"}
-        ]
-        excluded = [column for column in numeric_regressors if column not in included]
-        x_numeric = standardize_frame(x_numeric, included)
-    else:
-        excluded = list(numeric_regressors)
-
-    x_model = x_numeric.copy()
-    for column in CATEGORICAL_CONTROLS:
-        control = CATEGORICAL_METADATA[column]
-        categories = levels[column]
-        categorical = pd.Categorical(estimation_df[column].astype(str), categories=categories)
-        dummies = pd.get_dummies(categorical, prefix=column, drop_first=False, dtype=float)
-        expected = [f"{column}_{level}" for level in categories]
-        dummies = dummies.reindex(columns=expected, fill_value=0.0)
-        dummies = dummies.drop(columns=[f"{column}_{control['reference']}"], errors="ignore")
-        dummies.index = estimation_df.index
-        x_model = pd.concat([x_model, dummies], axis=1)
-        excluded.extend(dummies.columns.tolist())
-
-    x_model = sm.add_constant(x_model, has_constant="add")
-    excluded.append("const")
-    return x_model.astype(float), sorted(set(included)), sorted(set(excluded))
+    x_model, _, included, excluded = ols_spec.build_design_matrix(
+        estimation_df, regressors, levels, registry, shared_model_config(config),
+        standardised_model=config["standardised_models"],
+    )
+    return x_model.astype(float), included, excluded
 
 
 def significance_stars(p_value: float) -> str:
@@ -525,7 +366,7 @@ def fit_quantile_model(
     dependent = dependent_col(config, period)
     regressors = period_regressors(config, period)
     model_name = f"{scenario}_{period}_{quantile_label(quantile)}"
-    model_columns = [dependent, *regressors, *CATEGORICAL_CONTROLS]
+    model_columns = [dependent, *regressors, *categorical_columns(config)]
     working = filtered_df.loc[:, model_columns].copy()
     numeric_columns = [dependent, *regressors]
     working[numeric_columns] = working[numeric_columns].apply(safe_numeric)
@@ -544,8 +385,8 @@ def fit_quantile_model(
             "skipped": 1,
         }
 
-    levels = categorical_levels(estimation_df)
-    registry = add_categorical_registry(registry, levels)
+    levels = categorical_levels(filtered_df, config)
+    registry = add_categorical_registry(registry, levels, config)
     y = estimation_df[dependent].astype(float)
     lower = upper = np.nan
     affected = 0
@@ -611,8 +452,8 @@ def fit_quantile_model(
                 "quantile_label": quantile_label(quantile),
                 "performance_anchor": performance_anchor(quantile),
                 "dependent_variable": dependent,
-                "winsorised": "Yes",
-                "standardised_model": "Yes",
+                "winsorised": "Yes" if config["winsorise_dependent"] else "No",
+                "standardised_model": "Yes" if config["standardised_models"] else "No",
                 "sample_filter": sample_filter_text(config, scenario),
                 "raw_variable": variable,
                 "display_name": meta["display_name"],
@@ -756,8 +597,23 @@ def build_readme(config: dict[str, Any]) -> pd.DataFrame:
         ("Input file", config["input_file"]),
         ("Output file", config["output_file"]),
         ("Growth mode", config["growth_mode"]),
+        ("Dependent variable", f"{config['growth_mode'].title()} annualised log sales growth; measured in log points per year, rather than a log sales level or CAGR."),
+        ("Sales basis", period_dependent_metadata(config["growth_mode"], "FULL")["sales_basis"]),
+        *[
+            (f"Dependent variable {period}", f"{meta['label']}; source column: {meta['column']}; formula: {meta['formula']}.")
+            for period in config["periods"]
+            for meta in [period_dependent_metadata(config["growth_mode"], period)]
+        ],
+        ("Dependent variable preparation", "The source growth variable is winsorised and then standardised within the scenario-period estimation sample according to the settings below. Logs require strictly positive endpoint sales; otherwise growth is missing."),
         ("Quantiles", ", ".join(str(q) for q in config["quantiles"])),
         ("Preferred model variant", config["preferred_model_variant"]),
+        ("Shared model controls", "analysis_config.PERIOD_MODEL_SETTINGS; design matrices and metadata use the same builders as OLS scenarios."),
+        ("Base regressors", ", ".join(config["base_regressors"])),
+        ("Ownership", f"include_owner={config['include_owner']}; column={config['owner_column']}"),
+        ("Winsorisation", f"Dependent variable only; lower={config['winsor_lower']}; upper={config['winsor_upper']} within each scenario-period estimation sample."),
+        ("Standardisation", f"standardised_models={config['standardised_models']}; standardise_dependent={config['standardise_dependent']}; population standard deviation (ddof=0)."),
+        ("Generated regressors by period", "; ".join(f"{period}: {', '.join(period_regressors(config, period))}" for period in config["periods"])),
+        ("Estimator-specific inference", "QuantReg retains its default robust covariance, Epanechnikov kernel and Hall-Sheather bandwidth. OLS covariance settings do not transfer directly between estimators."),
         ("2018 role", "2018 is used only to calculate P1 lag growth; it is not an analytical outcome period."),
         ("Lag growth logic", "P1 uses 2018-2019 lag growth; P2 and P3 retain their prior-period lags; FULL has no lag growth."),
         ("Main analysis window", "Dependent variables, trajectories, SGrowth_NR, and FULL growth remain based on 2019-2024."),
@@ -842,10 +698,17 @@ def build_compare_sheet_for_period(coefficients: pd.DataFrame, summary: pd.DataF
     summary["model_column"] = summary["scenario"] + "_" + summary["quantile_label"]
     n_row = summary.set_index("model_column")["observations"].map(lambda value: f"{int(value):,}" if pd.notna(value) else "")
     r2_row = summary.set_index("model_column")["pseudo_R2"].map(lambda value: f"{float(value):.3f}" if pd.notna(value) else "")
-    stats = pd.DataFrame([n_row, r2_row], index=["N", "pseudo_R2"])
+    outcome_rows = [
+        summary.set_index("model_column")["growth_mode"].map(lambda mode: period_dependent_metadata(mode, period)[key])
+        for key in ["label", "column"]
+    ]
+    stats = pd.DataFrame(
+        [*outcome_rows, n_row, r2_row],
+        index=["Dependent variable", "Dependent variable column", "N", "pseudo_R2"],
+    )
     output = pd.concat([stats, coefficient_table], axis=0).reset_index().rename(columns={"index": "display_name"})
     ordered_quantile_labels = sorted(
-        {quantile_label(float(q)) for q in CONFIG["quantiles"]},
+        {quantile_label(float(q)) for q in summary["quantile"].unique()},
         key=lambda label: QUANTILE_ORDER.get(label, 9999),
     )
     model_columns = [
@@ -941,29 +804,6 @@ def build_variable_labels(registry: dict[str, dict[str, Any]], coefficients: pd.
                     "source": meta["source"],
                 }
             )
-    for column in CATEGORICAL_CONTROLS:
-        metadata = CATEGORICAL_METADATA[column]
-        for level in metadata.get("levels", []):
-            raw_name = f"{column}_{level}"
-            is_reference = str(level) == str(metadata["reference"])
-            if raw_name not in observed and not is_reference:
-                continue
-            display_name = (
-                f"{metadata['display_prefix']}reference: {level}"
-                if is_reference
-                else f"{metadata['display_prefix']}{level}"
-            )
-            rows.append(
-                {
-                    "raw_name": raw_name,
-                    "display_name": display_name,
-                    "variable_label": VARIABLE_LABELS.get(raw_name, display_name),
-                    "variable_type": "categorical_reference" if is_reference else "categorical",
-                    "variable_order": resolve_variable_order(raw_name),
-                    "standardise": False,
-                    "source": column,
-                }
-            )
     return (
         pd.DataFrame(rows)
         .drop_duplicates(subset=["raw_name"], keep="first")
@@ -1046,17 +886,27 @@ def format_workbook(writer: pd.ExcelWriter, tables: dict[str, pd.DataFrame]) -> 
                 worksheet.set_column(col_idx, col_idx, 42, wrap)
         freeze_and_hide_gridlines(worksheet, 1, 1 if sheet_name in {*compare_sheets, "Quantile_Patterns"} else 0)
         apply_safe_autofilter(worksheet, frame)
+        if sheet_name == "README":
+            worksheet.set_column(0, 0, 32)
+            worksheet.set_column(1, 1, 80, wrap)
+            for row_idx, description in enumerate(frame["description"], start=1):
+                lines = len(textwrap.wrap(str(description), width=76)) or 1
+                worksheet.set_row(row_idx, 15 * lines + 6)
+        if sheet_name in compare_sheets:
+            for row_idx, label in enumerate(frame["display_name"], start=1):
+                if label in {"Dependent variable", "Dependent variable column"}:
+                    worksheet.set_row(row_idx, 45, wrap)
 
 
 def validate_input_columns(df: pd.DataFrame, config: dict[str, Any]) -> None:
-    if "P1" in LAG_GROWTH_PERIODS:
+    if config["include_lag_growth"] and "P1" in config["lag_growth_periods"]:
         p1_lag_column = lag_growth_col(config, "P1")
         if p1_lag_column not in df.columns:
             raise ValueError(
                 f"Input file is missing required P1 lag-growth column: {p1_lag_column}. "
                 "Rebuild Data_period_2018-2024 with the 2018 sales extension."
             )
-    required = {complete_flag_col(config), OWNER_COLUMN, *CATEGORICAL_CONTROLS}
+    required = {complete_flag_col(config), *categorical_columns(config)}
     generated_interactions = {
         interaction_col(interaction["name"], period)
         for period in config["periods"]
@@ -1066,7 +916,7 @@ def validate_input_columns(df: pd.DataFrame, config: dict[str, Any]) -> None:
         required.add(dependent_col(config, period))
         required.update(column for column in period_regressors(config, period) if column not in generated_interactions)
         for interaction in active_interactions():
-            required.update(resolve_interaction_source(variable, period) for variable in interaction["variables"])
+            required.update(resolve_interaction_source(config, variable, period) for variable in interaction["variables"])
     missing = sorted(required.difference(df.columns))
     if missing:
         raise ValueError(f"Input file missing required columns: {missing}")
@@ -1105,6 +955,10 @@ def run_quantile_regression(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         raise ValueError(f"Unsupported periods: {invalid_periods}")
     expected_labels = {"Q10", "Q50", "Q90"}
 
+    # Validate the same control panel before fitting any model.
+    ols_spec.validate_user_config({**ols_spec.CONFIG, **config})
+    if not config["standardised_models"] or not config["winsorise_dependent"]:
+        raise ValueError("winsor_std requires shared standardised_models=True and winsorise_dependent=True.")
     input_df = load_input_data(config)
     validate_input_columns(input_df, config)
     input_df = add_interaction_columns(input_df, config)
@@ -1166,7 +1020,11 @@ def run_quantile_regression(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
     diagnostics = sort_by_model_keys(diagnostics).loc[:, DIAGNOSTIC_COLUMNS] if not diagnostics.empty else diagnostics
     convergence_summary = build_convergence_summary(diagnostics)
     run_log = pd.DataFrame(run_log_rows, columns=RUN_LOG_COLUMNS)
-    variable_labels = build_variable_labels(base_registry, coefficients)
+    combined_registry = dict(base_registry)
+    for frame in scenario_frames.values():
+        if not frame.empty:
+            combined_registry = add_categorical_registry(combined_registry, categorical_levels(frame, config), config)
+    variable_labels = build_variable_labels(combined_registry, coefficients)
     compare_tables = {
         "Compare_FULL": build_compare_sheet_for_period(coefficients, summary, "FULL"),
         "Compare_P1": build_compare_sheet_for_period(coefficients, summary, "P1"),
@@ -1246,7 +1104,7 @@ def print_validation(
     print("main_analysis_window: dependent variables, trajectories, SGrowth_NR, and FULL remain 2019-2024")
     print(
         "sector_en present and used as categorical control: "
-        f"{'sector_en' in CATEGORICAL_CONTROLS}"
+        f"{'sector_en' in categorical_columns(config)}"
     )
     print(f"quantiles: {config['quantiles']}")
     print(f"preferred_model_variant: {config['preferred_model_variant']}")
@@ -1264,6 +1122,10 @@ def print_validation(
         print("sample_consistency_check: WARNING")
         for warning in sample_warnings:
             print(warning)
+    print("shared_ols_model_specification_used: True")
+    print("Generated model specifications:")
+    for period in config["periods"]:
+        print(f"{period}: dependent={dependent_col(config, period)}; regressors={period_regressors(config, period)}")
     print("analysis_config_imported: True")
     print("analysis_helpers_imported: True")
     print(f"output_sheet_names_valid: {written_sheets == OUTPUT_SHEETS}")

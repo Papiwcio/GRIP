@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import textwrap
 
 import pandas as pd
 import statsmodels.api as sm
+from scipy.stats import pearsonr
 
 from analysis_config import (
     CATEGORICAL_METADATA,
@@ -20,6 +22,7 @@ from analysis_config import (
     build_sample_mask,
     get_period_model_settings,
     get_scenario_definitions,
+    period_dependent_metadata,
     validate_scenario_alignment,
 )
 from analysis_helpers import build_shared_sample_counts, safe_numeric
@@ -1317,6 +1320,15 @@ def get_comparison_column_label(model_name: str) -> str:
     return f"{period}_{display_suffix}"
 
 
+def get_comparison_model_names(config: dict[str, Any], variant_suffixes: list[str]) -> list[str]:
+    """Order comparison columns by data treatment, then by period."""
+    return [
+        f"{period}_{suffix}"
+        for suffix in variant_suffixes
+        for period in config["periods"]
+    ]
+
+
 def build_comparison_row_order(
     config: dict[str, Any],
     coefficients_df: pd.DataFrame,
@@ -1400,11 +1412,7 @@ def build_comparison_sheet(
     variant_suffixes: list[str],
 ) -> pd.DataFrame:
     validate_comparison_variants_active(variant_suffixes, config)
-    model_names = [
-        f"{period}_{suffix}"
-        for period in config["periods"]
-        for suffix in variant_suffixes
-    ]
+    model_names = get_comparison_model_names(config, variant_suffixes)
     missing_models = [model_name for model_name in model_names if model_name not in set(summary_df["model"])]
     if missing_models:
         raise ValueError(f"Cannot build comparison sheet because these expected models were not estimated: {missing_models}")
@@ -2273,10 +2281,17 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Input file", config["input_file"]),
         ("Output file", config["output_file"]),
         ("Growth mode", config["growth_mode"]),
+        ("Dependent variable", f"{config['growth_mode'].title()} annualised log sales growth; measured in log points per year, rather than a log sales level or CAGR."),
+        ("Sales basis", period_dependent_metadata(config["growth_mode"], "FULL")["sales_basis"]),
+        *[
+            (f"Dependent variable {period}", f"{meta['label']}; source column: {meta['column']}; formula: {meta['formula']}.")
+            for period in config["periods"]
+            for meta in [period_dependent_metadata(config["growth_mode"], period)]
+        ],
         ("Model periods", ", ".join(config["periods"])),
         ("Scenario definitions", scenario_text),
         ("Model variants", variant_text),
-        ("Dependent variable logic", "P1/P2/P3 use annualised log growth by period; FULL uses 2019-2024 annualised log growth."),
+        ("Dependent variable logic", "The source growth variables above are used in baseline models, clipped at the configured percentiles in winsor variants, and standardised within the estimation sample when the variant and standardise_dependent settings request it. Logs require strictly positive endpoint sales; otherwise growth is missing."),
         ("2018 role", "2018 is used only to calculate P1 lag growth; it is not an analytical outcome period."),
         ("Lag growth logic", "P1 uses 2018-2019 lag growth; P2 and P3 retain their prior-period lags; FULL has no lag growth."),
         ("Main analysis window", "Dependent variables, trajectories, SGrowth_NR, and FULL growth remain based on 2019-2024."),
@@ -2379,7 +2394,7 @@ def build_stacked_compare_sheet(
     variant_suffixes: list[str],
 ) -> pd.DataFrame:
     frames = []
-    model_names = [f"{period}_{suffix}" for period in config["periods"] for suffix in variant_suffixes]
+    model_names = get_comparison_model_names(config, variant_suffixes)
     columns = ["scenario", "display_name", *[get_comparison_column_label(model_name) for model_name in model_names]]
 
     for scenario_name in SCENARIOS:
@@ -2409,6 +2424,15 @@ def build_stacked_compare_sheet(
                 for model_name in model_names
             ]
 
+        outcome_rows = pd.DataFrame(
+            [
+                [period_dependent_metadata(config["growth_mode"], model_name.split("_", 1)[0])[key] for model_name in model_names]
+                for key in ["label", "column"]
+            ],
+            index=["Dependent variable", "Dependent variable column"],
+            columns=table.columns,
+        )
+        table = pd.concat([outcome_rows, table])
         scenario_table = table.reset_index().rename(columns={"index": "display_name"})
         scenario_table.insert(0, "scenario", scenario_name)
         frames.append(scenario_table.reindex(columns=columns))
@@ -2692,6 +2716,21 @@ def build_correlation_long(
                 for i, variable_1 in enumerate(variables):
                     for variable_2 in variables[i + 1:]:
                         pair = variant_df[[variable_1, variable_2]].apply(pd.to_numeric, errors="coerce").dropna()
+                        correlation = pair[variable_1].corr(pair[variable_2]) if len(pair) >= 2 else pd.NA
+                        if (
+                            len(pair) >= 2
+                            and pair[variable_1].nunique(dropna=True) >= 2
+                            and pair[variable_2].nunique(dropna=True) >= 2
+                        ):
+                            p_value = float(
+                                pearsonr(
+                                    pair[variable_1].to_numpy(),
+                                    pair[variable_2].to_numpy(),
+                                    alternative="two-sided",
+                                ).pvalue
+                            )
+                        else:
+                            p_value = pd.NA
                         rows.append(
                             {
                                 "scenario": scenario_name,
@@ -2706,7 +2745,8 @@ def build_correlation_long(
                                 "variable_2": variable_2,
                                 "variable_2_effective": effective_names[variable_2],
                                 "variable_2_label": variable_label(variable_2, variable_registry),
-                                "correlation": pair[variable_1].corr(pair[variable_2]) if len(pair) >= 2 else pd.NA,
+                                "correlation": correlation,
+                                "p_value": p_value,
                                 "N": len(pair),
                             }
                         )
@@ -2774,6 +2814,7 @@ def build_correlation_with_dv(
         "dependent_variable_effective",
         "predictor",
         "correlation",
+        "p_value",
         "N",
     ]
     return (
@@ -3071,6 +3112,17 @@ def format_workbook(writer: pd.ExcelWriter, workbook_tables: dict[str, pd.DataFr
                 worksheet.set_column(col_idx, col_idx, width, wrap_format)
             else:
                 worksheet.set_column(col_idx, col_idx, width)
+
+        if sheet_name == "README":
+            worksheet.set_column(0, 0, 32)
+            worksheet.set_column(1, 1, 80, wrap_format)
+            for row_idx, description in enumerate(frame["description"], start=1):
+                lines = len(textwrap.wrap(str(description), width=76)) or 1
+                worksheet.set_row(row_idx, 15 * lines + 6)
+        if sheet_name in {"Compare_Main", "Compare_Raw"}:
+            for row_idx, label in enumerate(frame["display_name"], start=1):
+                if label in {"Dependent variable", "Dependent variable column"}:
+                    worksheet.set_row(row_idx, 45, wrap_format)
 
 
 def write_scenario_workbook(

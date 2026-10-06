@@ -54,6 +54,19 @@ Each scenario estimates models for:
 
 Period dependent variables are annualised log growth variables.
 
+The current shared setting is `growth_mode = "nominal"`: the dependent variable is **nominal annualised log sales growth**, calculated from current-price `sales`, not inflation-adjusted `sales_real` and not the log sales level.
+
+| Period | Current nominal source column | Formula |
+| --- | --- | --- |
+| P1 | `ngrowth_log_ann_P1` | `(ln(sales_2020) - ln(sales_2019)) / 1` |
+| P2 | `ngrowth_log_ann_P2` | `(ln(sales_2022) - ln(sales_2020)) / 2` |
+| P3 | `ngrowth_log_ann_P3` | `(ln(sales_2024) - ln(sales_2022)) / 2` |
+| FULL | `ngrowth_log_ann_2019_2024` | `(ln(sales_2024) - ln(sales_2019)) / 5` |
+
+Switching the shared setting to `real` selects the corresponding `rgrowth_log_ann_*` columns and substitutes inflation-adjusted `sales_real` in these formulas. Endpoint sales must be strictly positive; missing or non-positive endpoints yield missing growth. The measures are in log points per year, not CAGR. Model variants apply the documented winsorisation and standardisation to these source variables.
+
+The workbook README states the price basis, exact source column, interval, and formula for every period. `Compare_Main` and `Compare_Raw` show `Dependent variable` and `Dependent variable column` rows at the start of each scenario block. These descriptions are generated from the configured growth mode and update automatically when it changes. Description rows do not alter the regression specification or estimates.
+
 `FULL` is the 2019-2024 full-period model. It uses:
 
 - `rgrowth_log_ann_2019_2024` when `growth_mode == "real"`
@@ -180,12 +193,12 @@ Columns:
 - `scenario`
 - `display_name`
 - `P1_StdBaseline`
-- `P1_StdWinsor`
 - `P2_StdBaseline`
-- `P2_StdWinsor`
 - `P3_StdBaseline`
-- `P3_StdWinsor`
 - `FULL_StdBaseline`
+- `P1_StdWinsor`
+- `P2_StdWinsor`
+- `P3_StdWinsor`
 - `FULL_StdWinsor`
 
 Rows use display labels from the variable registry.
@@ -199,12 +212,12 @@ Columns:
 - `scenario`
 - `display_name`
 - `P1_Baseline`
-- `P1_Winsor`
 - `P2_Baseline`
-- `P2_Winsor`
 - `P3_Baseline`
-- `P3_Winsor`
 - `FULL_Baseline`
+- `P1_Winsor`
+- `P2_Winsor`
+- `P3_Winsor`
 - `FULL_Winsor`
 
 Rows use display labels from the variable registry.

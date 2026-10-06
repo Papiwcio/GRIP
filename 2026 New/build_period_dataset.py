@@ -293,7 +293,16 @@ def classify_quantile_performance(
 ) -> tuple[pd.Series, dict[str, float | int]]:
     p10, p90, n_used = calculate_quantile_thresholds(series, threshold_mask)
     classified = classify_with_thresholds(series, valid_mask, p10, p90)
-    return classified, {"p10": p10, "p90": p90, "n_used_for_threshold": n_used}
+    # Summarise the same fixed benchmark sample used for its quantiles.
+    benchmark_growth = series.loc[threshold_mask & series.notna()].astype(float)
+    return classified, {
+        "p10": p10,
+        "p90": p90,
+        "n_used_for_threshold": n_used,
+        "mean_growth_bottom10": float(benchmark_growth.loc[benchmark_growth.le(p10)].mean()),
+        "mean_growth_top10": float(benchmark_growth.loc[benchmark_growth.ge(p90)].mean()),
+        "mean_growth_population": float(benchmark_growth.mean()),
+    }
 
 
 def validate_input(df: pd.DataFrame) -> None:
@@ -421,14 +430,16 @@ def build_sgrowth_nr(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int,
                 "growth_type": growth_family,
                 "benchmark_group": benchmark,
                 "performance_column": column_name,
-                "p10": threshold_info["p10"],
-                "p90": threshold_info["p90"],
-                "n_used_for_threshold": threshold_info["n_used_for_threshold"],
+                **threshold_info,
             }
         )
 
     performance_thresholds = pd.DataFrame(threshold_rows)[
-        ["growth_type", "benchmark_group", "performance_column", "p10", "p90", "n_used_for_threshold"]
+        [
+            "growth_type", "benchmark_group", "performance_column", "p10", "p90",
+            "n_used_for_threshold", "mean_growth_bottom10", "mean_growth_top10",
+            "mean_growth_population",
+        ]
     ].sort_values(["growth_type", "benchmark_group"], kind="mergesort").reset_index(drop=True)
     if performance_thresholds["n_used_for_threshold"].eq(0).any():
         raise ValueError("Quantile thresholds computed on empty sample for some benchmark.")
@@ -658,11 +669,105 @@ def build_period_dataset(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, p
     )
 
 
+def excel_number_format(column: str, series: pd.Series, sheet_name: str) -> str:
+    """Select display units only; underlying values retain full precision."""
+    if not pd.api.types.is_numeric_dtype(series):
+        return "@"
+    if pd.api.types.is_integer_dtype(series) or column == "n_used_for_threshold":
+        return "0"
+    if sheet_name == "Performance_Thresholds":
+        return "0.00%"
+    # Log growth is a log-point change, not a simple percentage growth rate.
+    if "growth" in column:
+        return "0.0000" if "_log" in column else "0.00%"
+    ratio_names = {
+        "profit_margin", "operating_margin", "export_ratio", "capital_ratio",
+        "roa", "roe", "depreciation_ratio", "wage_intensity",
+    }
+    base_name = column.split("_start_")[0]
+    if base_name in ratio_names:
+        return "0.00%"
+    if "_per_employee" in column or column.startswith(("rindex_", "nindex_")):
+        return "#,##0.00"
+    return "0.0000"
+
+
+def format_analysis_sheet(writer: pd.ExcelWriter, frame: pd.DataFrame, sheet_name: str) -> None:
+    """Match results workbook colours and provide native Excel analysis tables."""
+    workbook = writer.book
+    worksheet = writer.sheets[sheet_name]
+    is_data = sheet_name == "Data"
+    colour = "#1F4E78" if is_data else "#C65911"
+    header = workbook.add_format({
+        "font_name": "Arial", "font_size": 10, "bold": True,
+        "bg_color": colour, "font_color": "white", "text_wrap": True,
+        "align": "center", "valign": "vcenter", "right": 1,
+        "right_color": "white",
+    })
+    worksheet.set_tab_color("#5B9BD5" if is_data else "#ED7D31")
+    worksheet.hide_gridlines(2)
+    worksheet.freeze_panes(1, 2 if is_data else 3)
+    worksheet.set_default_row(15)
+    worksheet.set_row(0, 42)
+    worksheet.set_zoom(90)
+
+    wrapped_columns = {}
+    for col_idx, column in enumerate(frame.columns):
+        series = frame[column]
+        numeric = pd.api.types.is_numeric_dtype(series)
+        number_format = excel_number_format(column, series, sheet_name)
+        wrap = column in {"company", "pkd_description", "sector", "sector_en", "legal_form"}
+        if column == "nip":
+            width = 15
+        elif column == "company":
+            width = 44
+        elif column == "pkd_description":
+            width = 52
+        elif wrap:
+            width = 28
+        elif numeric:
+            width = min(max(len(column) + 2, 16), 26)
+        else:
+            content_width = int(series.astype("string").fillna("").str.len().max()) if len(series) else 0
+            width = min(max(len(column) + 2, content_width + 2, 18), 35)
+        body_format = workbook.add_format({
+            "font_name": "Arial", "font_size": 10, "num_format": number_format,
+            "align": "right" if numeric else "left", "valign": "vcenter",
+            "text_wrap": wrap,
+        })
+        worksheet.set_column(col_idx, col_idx, width, body_format)
+        if wrap:
+            wrapped_columns[column] = width
+
+    # Expand only rows with long descriptors so wrapped source text remains visible.
+    for row_idx, row in frame[list(wrapped_columns)].iterrows():
+        lines = 1
+        for column, width in wrapped_columns.items():
+            value = "" if pd.isna(row[column]) else str(row[column])
+            lines = max(lines, sum(max(1, int(np.ceil(len(part) / (width - 3)))) for part in value.split("\n")))
+        if lines > 1:
+            worksheet.set_row(row_idx + 1, 15 * lines)
+
+    if not frame.empty:
+        worksheet.add_table(0, 0, len(frame), len(frame.columns) - 1, {
+            "name": "PeriodData" if is_data else "PerformanceThresholds",
+            "style": "Table Style Medium 2" if is_data else "Table Style Medium 9",
+            "columns": [{"header": column, "header_format": header} for column in frame.columns],
+            "autofilter": True,
+        })
+    else:
+        for col_idx, column in enumerate(frame.columns):
+            worksheet.write(0, col_idx, column, header)
+    print(f"Excel analysis table: {sheet_name} | {len(frame):,} rows | {len(frame.columns)} columns | filters and frozen panes")
+
+
 def write_outputs(df: pd.DataFrame, performance_thresholds: pd.DataFrame, parquet_path: Path, xlsx_path: Path) -> None:
     df.to_parquet(parquet_path, index=False)
     with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Data")
         performance_thresholds.to_excel(writer, index=False, sheet_name="Performance_Thresholds")
+        format_analysis_sheet(writer, df, "Data")
+        format_analysis_sheet(writer, performance_thresholds, "Performance_Thresholds")
 
 
 def print_missing_counts(df: pd.DataFrame, columns: list[str]) -> None:
@@ -761,7 +866,12 @@ def print_build_summary(
         print_frequency_table(df, column)
     for (growth_type, benchmark_group), group in performance_thresholds.groupby(["growth_type", "benchmark_group"], sort=True):
         print(f"\nThresholds: {growth_type} | {benchmark_group}")
-        print(group[["performance_column", "p10", "p90", "n_used_for_threshold"]].to_string(index=False))
+        print(group.drop(columns=["growth_type", "benchmark_group"]).to_string(index=False))
+    print("Performance_Thresholds columns:")
+    print(performance_thresholds.columns.tolist())
+    print(f"Performance_Thresholds column count: {len(performance_thresholds.columns)}")
+    print("Performance_Thresholds missing counts:")
+    print(performance_thresholds.isna().sum().to_string())
     print(f"Firms with sales_2024 <= 0 and sales_2019 > 0: {collapse_count:,}")
     print(f"Valid annualised real sales growth (2019-2024): {valid_real_growth_count:,}")
     print(f"Valid annualised nominal sales growth (2019-2024): {valid_nominal_growth_count:,}")

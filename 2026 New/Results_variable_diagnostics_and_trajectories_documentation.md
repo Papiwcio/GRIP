@@ -61,8 +61,8 @@ The selected real or nominal complete-trajectory flag is applied in addition to 
 
 - `20_CORR_MAIN_BASELINE`: clearly separated baseline `FULL`-period matrices for all four shared scenarios
 - `21_CORR_MAIN_WINSOR`: clearly separated winsorised `FULL`-period matrices for all four shared scenarios
-- `22_CORR_WITH_DV_BASELINE`: dependent-variable correlations by scenario and period
-- `23_CORR_WITH_DV_WINSOR`: winsorised dependent-variable correlations by scenario and period
+- `22_CORR_WITH_DV_BASELINE`: dependent-variable correlations by scenario and period, with two-sided Pearson p-values
+- `23_CORR_WITH_DV_WINSOR`: winsorised dependent-variable correlations by scenario and period, with two-sided Pearson p-values
 - `24_CORR_PREDICTOR_RISK`: predictor-predictor correlations, high-correlation flags, and baseline/winsor consistency check
 - `25_CORR_STABILITY_SCENARIOS`: correlations compared across the shared scenarios
 
@@ -72,6 +72,10 @@ Winsorised correlations are separate because winsorisation changes extreme depen
 
 Correlations are diagnostic evidence about direction, redundancy, and stability. They are not mechanical variable-selection criteria.
 
+For every row in `22_CORR_WITH_DV_BASELINE`, `23_CORR_WITH_DV_WINSOR`, and `90_CORR_LONG_ALL`, `p_value` is the two-sided p-value for testing a zero population Pearson correlation. It is calculated with `scipy.stats.pearsonr()` from exactly the same pairwise-complete observations used for `correlation` and `N`. The stored value remains numeric and is displayed to four decimal places. If fewer than two paired observations are available or either variable is constant, both `correlation` and `p_value` are missing; `N` retains the pairwise observation count.
+
+The matrix sheets `20_CORR_MAIN_BASELINE` and `21_CORR_MAIN_WINSOR` continue to display correlation coefficients only and do not include p-values.
+
 ### Scenario Diagnostics
 
 - `30_SCENARIO_SUMMARY`: shared definitions, counts and inclusion flags
@@ -79,7 +83,7 @@ Correlations are diagnostic evidence about direction, redundancy, and stability.
 
 ### Audit Appendices
 
-- `90_CORR_LONG_ALL`: complete long-form pairwise correlation audit trail
+- `90_CORR_LONG_ALL`: complete long-form pairwise correlation audit trail, including two-sided Pearson p-values
 - `91_APPENDIX_FULL_MATRICES`: matrices for every scenario, period, and exported correlation variant
 - `92_FIRM_TRAJECTORIES`: firm-level trajectory inspection table
 - `93_CONFIG_AUDIT`: selected trajectory family, period definitions and method settings
@@ -119,4 +123,4 @@ Tab colours:
 
 - Source script: `run_trajectory_analysis.py`
 - Output: `Results_variable_diagnostics_and_trajectories.xlsx`
-- Date: 2026-07-01
+- Date: 2026-09-29

@@ -23,6 +23,23 @@ PERIODS = {
     "P3": {"start": 2022, "end": 2024, "years": 2},
 }
 
+def period_dependent_metadata(growth_mode: str, period: str) -> dict[str, str]:
+    """Describe the outcome's price basis, source column, interval and formula."""
+    if growth_mode not in {"nominal", "real"}:
+        raise ValueError("growth_mode must be 'nominal' or 'real'.")
+    details = {"start": 2019, "end": 2024, "years": 5} if period == "FULL" else PERIODS[period]
+    start, end, years = details["start"], details["end"], details["years"]
+    prefix = "n" if growth_mode == "nominal" else "r"
+    sales = "sales" if growth_mode == "nominal" else "sales_real"
+    column = f"{prefix}growth_log_ann_2019_2024" if period == "FULL" else f"{prefix}growth_log_ann_{period}"
+    return {
+        "column": column,
+        "label": f"{growth_mode.title()} annualised log sales growth ({start}-{end})",
+        "formula": f"(ln({sales}_{end}) - ln({sales}_{start})) / {years}",
+        "sales_basis": "Nominal sales at current prices (sales)." if growth_mode == "nominal" else "Inflation-adjusted real sales (sales_real).",
+    }
+
+
 PERIOD_MODEL_SETTINGS = {
     "growth_mode": "nominal",
     "periods": [*PERIODS, "FULL"],
