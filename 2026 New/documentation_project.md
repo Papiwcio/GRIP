@@ -25,6 +25,8 @@ Run commands from this directory:
 4. `python3 code_quantile.py` writes `results_quantile.xlsx` with the shared OLS `winsor_std` model specification.
 5. `python3 code_diagnostics_trajectories.py` writes `results_diagnostics_trajectories.xlsx`.
 
+The separate severe-P1 supplement runs with `python3 code_severe_p1_decline.py`; `python3 code_check_severe_p1_decline.py` validates and reproduces it. Its exact user-specified output is `Results_severe_P1_decline_analysis.xlsx`, an explicit exception to the usual lowercase filenames. It examines Rank2019 and Rank2019_Manufacturing at fixed -15%, -20%, and -25% P1 thresholds. See `documentation_severe_p1_decline.md` for the method, separation handling, interpretation, and eight-sheet structure. It does not alter the main analyses or canonical datasets.
+
 Shared model settings and metadata live in `code_config.py`; shared helpers live in `code_helpers.py`. Documentation of formulas, samples, preprocessing, and output tabs remains in the corresponding `documentation_*.md` files.
 
 The current datasets cover 2018–2024, with 2018 supporting the P1 lag. Main outcomes remain 2019–2024. Obsolete dataset copies ending in `2019-2024` were removed from the working directory; their historical versions remain recoverable from Git history.
