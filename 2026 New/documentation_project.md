@@ -63,13 +63,13 @@ Notebooks are inspection tools, not the source of transformations or model estim
 | `check_period_ols.ipynb` | `notebook_check_ols.ipynb` |
 | `Analysis.ipynb` | `notebook_analysis.ipynb` |
 
-During migration, historical workbooks previously in `Results/` moved to `archive/`. Dot-separated dates became ISO dates at the end of each filename; historical contents were preserved during that rename. The dated summary document was renamed to `archive/summary_2026-09-29.docx` before its subsequent removal in the cleanup below. The retained original single-sample OLS comparison reference resolves to `archive/results_ols_2026-05-06.xlsx`.
+During migration, historical workbooks previously in `Results/` moved to `archive/`. Dot-separated dates became ISO dates at the end of each filename; historical contents were preserved during that rename. The dated summary document is `archive/summary_2026-09-29.docx`. The original single-sample OLS comparison reference resolves to `archive/results_ols_2026-05-06.xlsx`.
 
 ## Unused-file cleanup on 6 October 2026
 
-After the naming migration, five obsolete dataset copies were removed: the Parquet and Excel core and period datasets for 2019–2024, and the 2019–2024 enriched panel input. Seven unused archived results and summary files were also removed. Their contents remain recoverable from earlier Git commits.
+After the naming migration, five obsolete dataset copies were removed: the Parquet and Excel core and period datasets for 2019–2024, and the 2019–2024 enriched panel input. Their contents remain recoverable from earlier Git commits. Seven archived results and summary files were initially removed, then restored in full at the user's request.
 
-The only retained archive file is `archive/results_ols_2026-05-06.xlsx`, which `code_ols_scenarios.py` still reads for its historical output-comparison check. It is a validation reference, not the current model input. Active datasets, exports, scripts, documentation, inspection notebooks, and results remain in place. Local obsolete bytecode caches were cleared.
+All eight historical results and summary files are retained in `archive/`. They are required historical records, not disposable unused files. `archive/results_ols_2026-05-06.xlsx` additionally supports the OLS historical output-comparison check; it is a validation reference, not the current model input. Active datasets, exports, scripts, documentation, inspection notebooks, and results remain in place. Local obsolete bytecode caches were cleared.
 
 File and import changes do not rename dataset columns, change formulas, change regression specifications, or alter stored dataset values. Active results workbooks are regenerated so their embedded paths and module references use the current filenames.
 

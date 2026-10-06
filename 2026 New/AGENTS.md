@@ -58,7 +58,7 @@ The 2018 extension supports the P1 lag based on 2018–2019. Main analysis outco
 - Historical results: `archive/results_<analysis>_<YYYY-MM-DD>.xlsx`; retain undated snapshots without inventing dates
 - Keep the special filename `AGENTS.md` unchanged
 
-Keep only active workflow files and explicitly used validation references. The archived `archive/results_ols_2026-05-06.xlsx` remains an input to the OLS historical-comparison check; other obsolete snapshots have been removed.
+Keep active workflow files, explicitly used validation references, and historical results in `archive/`. Archived results and summary documents are required historical records even when current scripts do not read them; do not remove them as unused files. The archived `archive/results_ols_2026-05-06.xlsx` also remains an input to the OLS historical-comparison check.
 
 Use lowercase filenames. Update imports, paths, workbook descriptions, and notebook references whenever a file is renamed. See `documentation_project.md` for the current workflow and migration map.
 
