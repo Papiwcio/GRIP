@@ -34,6 +34,7 @@ MANUAL_EXCLUSIONS = {
         {"company": "Elektrobudowa SA w upadłości likwidacyjnej GK, Katowice", "nip": "6340135506", "reason_code": "LIQUIDATION"},
         {"company": "Zakłady Mięsne Henryk Kania SA w upadłości", "nip": "7440003325", "reason_code": "LIQUIDATION"},
         {"company": "Globus sp. z o.o., Warszawa", "nip": "7773261746", "reason_code": "HOLDING_NONCONSOLIDATED"},
+        {"company": "Ordipol sp. z o.o. (w upadłości), Bielany Wrocławskie", "nip": "6772001669", "reason_code": "LIQUIDATION"},
     ],
 }
 
