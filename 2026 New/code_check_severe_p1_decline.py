@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from scipy.special import expit
+from scipy.stats import norm
 
 import code_severe_p1_decline as analysis
 import code_ols_scenarios as ols
@@ -15,6 +16,10 @@ def mathematical_checks():
     indicator = analysis.bottom_indicator(pd.Series([-.25, -.20, -.15, .10, np.nan, np.inf]), 20)
     assert indicator.iloc[:4].tolist() == [1, 0, 0, 0]
     assert indicator.iloc[4:].isna().all()
+    for threshold in [15, 20, 25]:
+        cutoff=-threshold/100
+        boundary=analysis.bottom_indicator(pd.Series([np.nextafter(cutoff,-np.inf),cutoff,np.nextafter(cutoff,np.inf),np.nan]),threshold)
+        assert boundary.iloc[:3].tolist()==[1,0,0] and pd.isna(boundary.iloc[3])
     # Saturated two-group logit: Firth has the exact add-half odds solution,
     # including complete separation, so this checks against a closed form.
     x = np.column_stack([np.ones(20), np.r_[np.zeros(10), np.ones(10)]])
@@ -63,6 +68,7 @@ def check_results(result):
     source = pd.read_parquet(analysis.CONFIG['input_file'])
     shared = result['shared']
     models = ols.build_models(shared)
+    assert set(result['frames'])=={'Rank2019','Rank2019_Manufacturing'}
     source = ols.add_interaction_columns(source, shared, models)
     for sample, frame in result['frames'].items():
         for threshold in [15,20,25]:
@@ -105,7 +111,77 @@ def check_results(result):
     assert len(result['growths'])==12 and len(result['interactions'])==12
     for sheet,sections in result['sections'].items():
         assert any(not table.empty for _,table in sections),sheet
+    sensitivity=result['audit']['P2_lag_sensitivity']
+    for sample, rows in sensitivity.groupby('sample'):
+        assert len(rows)==2 and rows.N.nunique()==1
+        assert rows.N.iloc[0]==len(result['prepared'][sample,'P2'].x)
+    separation=result['audit']['separation']
+    assert separation.loc[separation['sample'].eq('Rank2019'),'separation'].eq('None').all()
+    assert separation.loc[separation['sample'].eq('Rank2019_Manufacturing'),'separation'].eq('Quasi-complete').all()
+    assert result['audit']['interaction_units'].identical_units.eq('Yes').all()
+    assert result['audit']['interaction_units'].combined_effect_valid.eq('Yes').all()
     print('PASS: shared OLS samples/designs/outcome preparation; fixed nested groups; exactly one dummy per model; original-scale interaction; slope covariance/inference; all required workbook sections.')
+
+
+def independent_data_checks(result):
+    """Reproduce OLS algebra and actual-data AMEs without reporting helpers."""
+    for fitted_block in ['growths', 'interactions']:
+        for model in result[fitted_block].values():
+            fit = model['fit']
+            x, y = fit.model.exog, fit.model.endog
+            q, r = np.linalg.qr(x, mode='reduced')
+            beta = np.linalg.solve(r, q.T @ y)
+            residual = y - x @ beta
+            inverse_r = np.linalg.solve(r, np.eye(r.shape[0]))
+            covariance = inverse_r @ inverse_r.T * (residual @ residual) / fit.df_resid
+            np.testing.assert_allclose(beta, fit.params, atol=1e-9)
+            np.testing.assert_allclose(covariance, fit.cov_params(), atol=1e-9)
+    checked = 0
+    for sample in result['frames']:
+        prepared = result['prepared'][sample, 'P1']
+        model = result['logits'][sample, 20]
+        fit = model['fit']
+        columns = prepared.x.columns.tolist()
+        x = prepared.x.to_numpy()
+        for record in model['marginal_effects'].itertuples():
+            variable = record.variable
+            plus, minus = x.copy(), x.copy()
+            if record.effect_type.startswith('Total derivative'):
+                epsilon = 1e-4
+                scale = prepared.scales[variable]
+                raw_plus, raw_minus = prepared.estimation.copy(), prepared.estimation.copy()
+                shift = epsilon * (scale['sd'] if scale['standardised'] else 1.)
+                raw_plus[variable] += shift
+                raw_minus[variable] -= shift
+                for raw, design in [(raw_plus, plus), (raw_minus, minus)]:
+                    for interaction in ols.get_active_interactions():
+                        names = [ols.resolve_interaction_variable(result['shared'], v, 'P1') for v in interaction['variables']]
+                        product = ols.build_interaction_column_name(interaction['name'], 'P1')
+                        raw[product] = raw[names[0]] * raw[names[1]]
+                    for name, scale in prepared.scales.items():
+                        design[:, columns.index(name)] = (raw[name] - scale['mean']) / scale['sd'] if scale['standardised'] else raw[name]
+                divisor = 2 * epsilon
+            else:
+                divisor = 1.
+                if variable == 'owner_num':
+                    plus[:, columns.index(variable)] = 1
+                    minus[:, columns.index(variable)] = 0
+                else:
+                    for name in columns:
+                        if name.startswith('sector_en_'):
+                            plus[:, columns.index(name)] = 0
+                            minus[:, columns.index(name)] = 0
+                    plus[:, columns.index(variable)] = 1
+            def probability_difference(beta):
+                return np.mean(expit(plus @ beta) - expit(minus @ beta)) / divisor
+            value = probability_difference(fit.beta)
+            steps = np.eye(len(fit.beta)) * 1e-4
+            gradient = np.array([(probability_difference(fit.beta + step) - probability_difference(fit.beta - step)) / 2e-4 for step in steps])
+            se = np.sqrt(gradient @ fit.covariance @ gradient)
+            p_value = 2 * norm.sf(abs(value / se))
+            np.testing.assert_allclose([value, se, p_value], [record.AME, record.std_error, record.p_value], atol=1e-6, rtol=1e-5)
+            checked += 1
+    print(f'PASS: independent QR coefficients/covariances for 24 OLS fits and numerical probability/gradient checks for all {checked} principal AMEs.')
 
 
 if __name__=='__main__':
@@ -115,6 +191,7 @@ if __name__=='__main__':
     hashes={path:hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
     results=analysis.run_analysis()
     check_results(results)
+    independent_data_checks(results)
     for path,expected in hashes.items():
         assert hashlib.sha256(path.read_bytes()).hexdigest()==expected,path
     print('PASS: canonical data and all main analysis workbooks unchanged.')

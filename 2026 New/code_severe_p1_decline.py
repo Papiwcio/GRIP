@@ -214,7 +214,7 @@ def marginal_effects(prepared: Prepared, fitted: LogisticFit, shared) -> pd.Data
         statistics, _ = continuous_ame(x, fitted.beta, fitted.covariance, derivative)
         records.append({"sample": prepared.sample, "variable": column,
                         "label": prepared.registry[column]["display_name"],
-                        "change": "One SD increase" if own_scale["standardised"] else "One raw-unit increase",
+                        "change": "Local derivative per 1 SD (not a finite shift)" if own_scale["standardised"] else "Local derivative per raw unit",
                         "effect_type": "Total derivative, interactions included", **statistics})
     if shared["include_owner"]:
         column = shared["owner_variable"]["column"]
@@ -286,6 +286,7 @@ def fit_logistic(prepared, frame, threshold, shared, config):
             odds = np.exp([statistics["estimate"], statistics["CI_lower"], statistics["CI_upper"]])
         coefficients.append({"sample": prepared.sample, "variable": variable,
                              "label": prepared.registry[variable]["display_name"],
+                             "scale": "Within-model-sample z-score" if variable in prepared.scales and prepared.scales[variable]["standardised"] else "Intercept or unstandardised dummy",
                              **statistics, "odds_ratio": odds[0], "OR_CI_lower": odds[1], "OR_CI_upper": odds[2]})
     coefficient_table = pd.DataFrame(coefficients).rename(columns={"estimate": "coefficient", "statistic": "z_stat"})
     pure_sectors = []
@@ -301,7 +302,7 @@ def fit_logistic(prepared, frame, threshold, shared, config):
         "BIC_plug_in": -2 * fitted.loglik + np.log(len(y)) * x.shape[1],
         "iterations": fitted.iterations, "adjusted_score_max": fitted.score_max,
         "method": method, "LR_method": lr_method,
-        "single_class_sectors": "; ".join(pure_sectors),
+        "single_class_sectors": "; ".join(pure_sectors) or "None",
     }
     return {"summary": summary, "coefficients": coefficient_table,
             "marginal_effects": marginal_effects(prepared, fitted, shared), "fit": fitted}
@@ -325,6 +326,10 @@ def fit_growth(prepared, frame, threshold, shared, profitability, interaction=Fa
         )
         coefficients.append({"sample": prepared.sample, "period": prepared.period,
                              "threshold": threshold, "variable": variable, "label": label,
+                             "scale": "z-score × fixed 0/1 indicator; product not restandardised" if variable == interaction_name else
+                                      "Fixed 0/1 indicator" if variable == name else
+                                      "Within-model-sample z-score" if variable in prepared.scales and prepared.scales[variable]["standardised"] else
+                                      "Intercept or unstandardised dummy",
                              **effect_statistics(float(fitted.params[variable]), float(fitted.cov_params().loc[variable, variable]), fitted.df_resid)})
     coefficient_table = pd.DataFrame(coefficients).rename(columns={"estimate": "coefficient", "statistic": "t_stat"})
     summary = {
@@ -401,7 +406,7 @@ def readme(config, shared, status):
     rows = [
         ("Purpose", "Supplementary P1 vulnerability → P2 recovery → P3 subsequent development analysis. Associations are descriptive, not causal."),
         ("Input file", config["input_file"]), ("Output file", config["output_file"]),
-        ("Samples", "Rank2019 and Rank2019_Manufacturing, selected by the user. The manufacturing sample is nested within Rank2019; results are not independent replications."),
+        ("Samples", "RANK2019 (primary) and RANK2019_MANUFACTURING (secondary). Internal shared masks are Rank2019 and Rank2019_Manufacturing. Manufacturing is nested within ranking; these are not independent replications."),
         ("Price basis", f"{mode.title()} sales growth. All model outcomes and lags follow code_config.PERIOD_MODEL_SETTINGS."),
         ("Primary definition", f"BottomP1_20 = 1 only when {ols.get_growth_prefix(shared)}growth_P1 < -0.20; equality is outside the severe group. Membership is fixed by P1."),
         ("Robustness", "Repeat the logit, P2/P3 group models, and profitability interactions separately at -15%, -20%, -25%. Never include multiple threshold indicators in one model."),
@@ -420,9 +425,15 @@ def readme(config, shared, status):
         ("Growth preprocessing", f"Use principal OLS winsor_std: clip only the outcome at {shared['winsor_lower']:.0%}/{shared['winsor_upper']:.0%}, then standardise it and metadata-designated continuous predictors within the same period estimation sample (ddof=0). Group indicators remain 0/1."),
         ("Growth controls", "Same period starting covariates, ownership, export_ratio × ln_sales, sector controls and lag growth as main OLS. P2's group coefficient is conditional on P1 growth through its lag; it is an incremental threshold association."),
         ("Selected interaction", "Only standardised profit_margin × BottomP1, estimated separately for P2 and P3. Do not restandardise this product. The ordinary-firm slope is β1, the severe-group slope β1+β3, and the slope difference β3. The group main effect is evaluated at mean profitability."),
+        ("Interaction audit", "Both profitability main effect and interaction use exactly the same z-score; combined inference uses Var(β1)+Var(β3)+2Cov(β1,β3). No scaling mismatch was found."),
+        ("Influence warning", "Manufacturing P3 profitability inference is fragile: the 2022 ratio 2111/28=75.392857 for nip 7440003325 dominates its variance; profitability VIFs exceed 2300. P2 profitability interactions are also highly collinear. Primary models retain these firms and predictors."),
+        ("Raw-growth mean warning", "Descriptive growth is raw. Ranking non-Bottom P1 and P3 means are strongly inflated by individual extreme observations; use the appended median/5th/95th/max audit alongside means."),
+        ("P2 lag sensitivity", "An additional -20% diagnostic removes the continuous P1-growth lag on exactly the same sample and outcome scaling. It does not replace the primary model. Both versions remain conditional associations, not causal recovery effects."),
+        ("Estimator comparison", "Ordinary MLE works without separation for Rank2019 at all thresholds. Firth was deliberately used in both samples for consistency and is retained. The principal ranking MLE comparison is diagnostic only; manufacturing requires separation handling."),
+        ("Firth implementation", "Project-local NumPy/SciPy adjusted-score solver, not execution of the R logistf package. Coefficients independently reproduced by BFGS; covariance is inverse original expected Fisher information. Wald/delta intervals are approximate, particularly for sparse or separated cells."),
         ("FULL", "No FULL model: group definition mechanically contains part of FULL growth."),
         ("Quantile distinction", "Fixed realised-P1 firm groups followed over time; no conditional-quantile models are estimated."),
-        ("Interpretation cautions", "Complete-trajectory selection excludes firms without later outcomes. Subsequent covariates and lags may mediate earlier decline; group comparisons and interactions are conditional associations, not causal recovery effects. Firth shrinks probabilities toward one half in small samples."),
+        ("Interpretation cautions", "Complete-trajectory selection excludes firms without later outcomes. Subsequent covariates and lags may mediate earlier decline; group comparisons and interactions are conditional associations, not causal recovery effects. Firth reduces first-order coefficient bias; it does not guarantee every fitted probability moves toward one half."),
         ("Model status", status),
         ("Method source", METHOD_SOURCE), ("Penalised LR reference", LR_SOURCE),
         ("Reproduce", "python3 code_severe_p1_decline.py; shared settings remain in code_config.py. Canonical datasets and other workbooks are not modified."),
@@ -468,11 +479,14 @@ def write_workbook(path, sections):
             title = book.add_format({"font_name": "Arial", "font_size": 13, "bold": True})
             section_format = book.add_format({"font_name": "Arial", "font_size": 11, "bold": True})
             worksheet.write(1, 0, sheet_name[3:].replace("_", " ").title(), title)
-            worksheet.write(2, 0, f"{ols.CONFIG['growth_mode'].title()} growth | Rank2019 and Rank2019_Manufacturing | Primary threshold -20%", body)
+            worksheet.write(2, 0, f"{ols.CONFIG['growth_mode'].title()} growth | RANK2019 and RANK2019_MANUFACTURING | Primary threshold -20%", body)
             row = 4
             for label, frame in sections[sheet_name]:
                 if frame.empty:
                     continue
+                frame = frame.copy()
+                if "sample" in frame:
+                    frame["sample"] = frame["sample"].replace({"Rank2019": "RANK2019", "Rank2019_Manufacturing": "RANK2019_MANUFACTURING"})
                 worksheet.write(row, 0, label, section_format)
                 startrow = row + 1
                 frame.to_excel(writer, sheet_name=sheet_name, startrow=startrow, index=False)
@@ -484,7 +498,7 @@ def write_workbook(path, sections):
                 row_heights = {}
                 for col_idx, column in enumerate(frame.columns):
                     numeric = pd.api.types.is_numeric_dtype(frame[column])
-                    number_format = integer if column.endswith("_N") or column in {"N", "firms", "bottom_count", "other_count", "threshold", "rows_dropped", "iterations", "LR_df"} else (
+                    number_format = integer if column.endswith("_N") or column in {"N", "N_total", "firms", "bottom_count", "other_count", "threshold", "rows_dropped", "iterations", "LR_df"} else (
                         percent if column.endswith("share") else pformat if column == "p_value" or column.endswith("p_value") else decimal)
                     if numeric:
                         width = min(max(len(column) + 2, 16), 24)
@@ -510,7 +524,7 @@ def write_workbook(path, sections):
                     worksheet.set_row(startrow + 1 + local_idx, height)
                 if "unit" in frame.columns:
                     # The mixed-unit descriptive table uses explicit per-row formats.
-                    values = [c for c in frame if c.endswith(("mean", "median", "sd")) or c == "mean_difference"]
+                    values = [c for c in frame if c.endswith(("mean", "median", "sd")) or c in {"mean_difference", "p05", "p95", "maximum", "mean_without_largest"}]
                     for local_idx, record in frame.iterrows():
                         if record["unit"] == "rate":
                             for column in values:
@@ -532,8 +546,8 @@ def run_analysis(config=None):
     source = Path(config["input_file"])
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     data = pd.read_parquet(source)
-    if data.nip.duplicated().any():
-        raise ValueError("Period data must have one row per nip.")
+    if data.nip.isna().any() or data.nip.duplicated().any():
+        raise ValueError("Period data must have non-missing, unique nip identifiers.")
     prefix = ols.get_growth_prefix(shared)
     p1_growth = f"{prefix}growth_P1"
     models = ols.build_models(shared)
@@ -576,7 +590,7 @@ def run_analysis(config=None):
                                      "sample_N": len(frame), "bottom_N": n_bottom, "bottom_share": n_bottom / len(frame)})
             if (sample, threshold) in logits:
                 result = logits[sample, threshold]
-                selected = result["marginal_effects"][result["marginal_effects"].variable.isin(["ln_sales_start_P1", "profit_margin_start_P1", shared["owner_column"]])]
+                selected = result["marginal_effects"][result["marginal_effects"].variable.isin(["ln_sales_start_P1", "profit_margin_start_P1", "capital_ratio_start_P1", shared["owner_column"]])]
                 for _, record in selected.iterrows():
                     coefficient = result["coefficients"].set_index("variable").loc[record["variable"]]
                     logit_robust.append({"sample": sample, "threshold": threshold, "N": result["summary"]["N"],
@@ -591,7 +605,7 @@ def run_analysis(config=None):
                 for _, slope in result["slopes"].iterrows():
                     if slope["group"] in {name, "Difference between slopes"}:
                         interaction_robust.append({"N": result["summary"]["N"], **slope.to_dict()})
-    status = f"{len(logits)} logistic, {len(growths)} group OLS, {len(interactions)} interaction OLS models completed. {len(failures)} explicitly flagged failures."
+    status = f"{len(logits)} logistic, {len(growths)} group OLS, {len(interactions)} interaction OLS primary/threshold models completed. {len(failures)} explicitly flagged failures. Audit diagnostics additionally compare one ranking MLE fit and two P2 fits without lag growth."
     sections = {
         "00_README": [("Specification and interpretation", readme(config, shared, status))],
         "01_GROUP_PROFILE": [("Group counts and sample shares", profile[0]), ("Continuous variables: severe group minus other firms", profile[1]), ("Control composition: within-group shares", profile[2])],
@@ -607,6 +621,24 @@ def run_analysis(config=None):
     if failures:
         sections["02_LOGIT_BOTTOMP1"].append(("Explicitly non-estimable models", pd.DataFrame(failures)))
         sections["07_THRESHOLD_ROBUSTNESS"].append(("Explicitly non-estimable models", pd.DataFrame(failures)))
+    # Requested audit diagnostics extend existing tabs; primary fits are retained.
+    from code_audit_severe_p1_decline import audit_models
+    model_result = {"prepared": prepared, "frames": frames, "logits": logits,
+                    "growths": growths, "interactions": interactions,
+                    "config": config, "shared": shared}
+    audit = audit_models(model_result)
+    sections["01_GROUP_PROFILE"].append(("Raw-growth tail audit: means unchanged", audit["raw_growth_extremes"]))
+    sections["02_LOGIT_BOTTOMP1"].append(("Separation audit for all threshold models", audit["separation"]))
+    core_comparison = audit["rank_MLE_Firth"].loc[audit["rank_MLE_Firth"].variable.isin(
+        [*models["P1"]["regressors"]])]
+    sections["02_LOGIT_BOTTOMP1"].append(("Ranking principal MLE versus Firth: diagnostic only", core_comparison))
+    sections["02_LOGIT_BOTTOMP1"].append(("Manufacturing sector counts before complete cases", audit["sector_counts"].query("sample == 'Rank2019_Manufacturing'")))
+    sections["04_P2_GROUP_MODEL"].append(("Sensitivity: remove continuous P1-growth lag, retain same sample", audit["P2_lag_sensitivity"]))
+    concise_influence = audit["influence"][["sample", "period", "threshold", "VIF_profitability",
+                                           "VIF_profitability_interaction", "profit_SD_z_other",
+                                           "profit_SD_z_bottom", "outlier_nip", "outlier_profit_SS_share",
+                                           "outlier_leverage", "outlier_Cooks_D"]]
+    sections["06_SELECTED_INTERACTIONS"].append(("Multicollinearity and influence: do not infer robust slopes from significance alone", concise_influence))
     write_workbook(Path(config["output_file"]), sections)
     if hashlib.sha256(source.read_bytes()).hexdigest() != source_hash:
         raise ValueError("Canonical input was unexpectedly changed.")
@@ -629,7 +661,8 @@ def run_analysis(config=None):
     print("Required sheets:", SHEETS)
     print("All threshold indicators built in analysis memory only; canonical input unchanged.")
     return {"sections": sections, "prepared": prepared, "frames": frames, "logits": logits,
-            "growths": growths, "interactions": interactions, "config": config, "shared": shared}
+            "growths": growths, "interactions": interactions, "config": config, "shared": shared,
+            "audit": audit}
 
 
 if __name__ == "__main__":
