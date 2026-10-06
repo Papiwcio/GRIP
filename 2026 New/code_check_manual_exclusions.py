@@ -24,13 +24,23 @@ def check_manual_exclusions():
         {'nip': 'other', 'company': 'Another Kania company'},
     ])
     synthetic = pd.DataFrame(records)
-    assert shared.manual_exclusion_mask(synthetic).tolist() == [True] * 8 + [False] * 2
+    assert shared.manual_exclusion_mask(synthetic).tolist() == [True] * (2 * len(shared.MANUAL_EXCLUSIONS['companies'])) + [False] * 2
     saved = deepcopy(shared.MANUAL_EXCLUSIONS)
     try:
         shared.MANUAL_EXCLUSIONS['enabled'] = False
         assert not shared.manual_exclusion_mask(synthetic).any()
     finally:
-        shared.MANUAL_EXCLUSIONS.update(saved)
+        shared.MANUAL_EXCLUSIONS.update(deepcopy(saved))
+    try:
+        shared.MANUAL_EXCLUSIONS['companies'][0]['reason_code'] = 'UNKNOWN'
+        try:
+            shared.manual_exclusion_mask(synthetic)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Unknown exclusion reasons must fail validation.')
+    finally:
+        shared.MANUAL_EXCLUSIONS.update(deepcopy(saved))
 
     config = ols.normalise_config(ols.CONFIG)
     source = pd.read_parquet(config['input_file'])
@@ -96,6 +106,8 @@ def check_saved_outputs():
             lines = [text for text in descriptions if entry['company'] in text and entry['nip'] in text]
             assert len(lines) == 1, (filename, entry)
             assert any(status in lines[0] for status in ['Removed from analysis', 'Already absent from input', 'Disabled'])
+            assert entry['reason_code'] in lines[0], (filename, entry)
+            assert shared.MANUAL_EXCLUSION_REASONS[entry['reason_code']] in lines[0], (filename, entry)
         for sheet in workbook:
             assert sheet.max_row > 1, (filename, sheet.title)
             assert not any(cell.data_type == 'e' for row in sheet for cell in row), (filename, sheet.title)

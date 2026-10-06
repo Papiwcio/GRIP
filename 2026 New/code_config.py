@@ -19,13 +19,21 @@ import pandas as pd
 
 # Manual analytical exclusions. Keep canonical data intact; apply before
 # scenario selection, complete-case filtering, winsorisation and scaling.
+MANUAL_EXCLUSION_REASONS = {
+    "M_AND_A": "Non-comparable financial statements due to M&A activities.",
+    "LIQUIDATION": "Non-comparable financial statements due to liquidation.",
+    "RANK2019_MISCLASSIFIED": "Non-comparable financial statements: energy trading company incorrectly classified as eligible in the 2019 ranking.",
+    "EXTREME_PROFITABILITY_RATIO": "Extreme net-profit/sales ratio from a very small sales denominator; dominates profitability variation in regression analysis.",
+}
+
 MANUAL_EXCLUSIONS = {
     "enabled": True,
     "companies": [
-        {"company": "Orlen SA GK, Płock", "nip": "7740001454"},
-        {"company": "Ignitis Polska sp. z o.o., Warszawa", "nip": "5252714003"},
-        {"company": "Elektrobudowa SA w upadłości likwidacyjnej GK, Katowice", "nip": "6340135506"},
-        {"company": "Zakłady Mięsne Henryk Kania SA w upadłości", "nip": "7440003325"},
+        {"company": "Orlen SA GK, Płock", "nip": "7740001454", "reason_code": "M_AND_A"},
+        {"company": "Ignitis Polska sp. z o.o., Warszawa", "nip": "5252714003", "reason_code": "RANK2019_MISCLASSIFIED"},
+        {"company": "Elektrobudowa SA w upadłości likwidacyjnej GK, Katowice", "nip": "6340135506", "reason_code": "LIQUIDATION"},
+        {"company": "Zakłady Mięsne Henryk Kania SA w upadłości", "nip": "7440003325", "reason_code": "LIQUIDATION"},
+        {"company": "Globus sp. z o.o., Warszawa", "nip": "7773261746", "reason_code": "EXTREME_PROFITABILITY_RATIO"},
     ],
 }
 
@@ -40,6 +48,8 @@ def manual_exclusion_mask(df: pd.DataFrame) -> pd.Series:
     names = df.company.astype("string").str.strip()
     nips = df.nip.astype("string").str.strip()
     for entry in MANUAL_EXCLUSIONS["companies"]:
+        if entry.get("reason_code") not in MANUAL_EXCLUSION_REASONS:
+            raise ValueError(f"Manual exclusion has a missing/unknown reason code: {entry}")
         mask |= (names.eq(entry["company"]) | nips.eq(entry["nip"])).fillna(False)
     return mask
 
@@ -55,7 +65,8 @@ def apply_manual_exclusions(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[s
         if not MANUAL_EXCLUSIONS["enabled"]:
             matched &= False
         observed = df.loc[matched]
-        rows.append({**entry, "matched_firms": int(observed.nip.nunique()),
+        rows.append({**entry, "reason_description": MANUAL_EXCLUSION_REASONS[entry["reason_code"]],
+                     "matched_firms": int(observed.nip.nunique()),
                      "matched_rows": len(observed),
                      "observed_names": "; ".join(sorted(observed.company.dropna().astype(str).unique())),
                      "status": "Removed from analysis" if matched.any() else
@@ -70,7 +81,7 @@ def apply_manual_exclusions(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[s
 def manual_exclusion_readme_rows(audit: list[dict[str, Any]]) -> list[tuple[str, str]]:
     """One common README block for regression and diagnostic workbooks."""
     rows = [("Manual exclusions", f"Enabled={MANUAL_EXCLUSIONS['enabled']}. Shared code_config.MANUAL_EXCLUSIONS; match verified NIP or exact company name (outer whitespace ignored). Applied before analytical filtering and all transformations. Canonical data retained.")]
-    rows.extend((f"Manual exclusion {i}", f"{entry['company']} | NIP {entry['nip']} | {entry['status']} | firms={entry['matched_firms']}, rows={entry['matched_rows']}") for i, entry in enumerate(audit, 1))
+    rows.extend((f"Manual exclusion {i}", f"{entry['company']} | NIP {entry['nip']} | {entry['status']} | firms={entry['matched_firms']}, rows={entry['matched_rows']} | Reason [{entry['reason_code']}]: {entry['reason_description']}") for i, entry in enumerate(audit, 1))
     return rows
 
 

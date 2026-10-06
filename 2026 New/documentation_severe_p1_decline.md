@@ -8,16 +8,16 @@ Input: `data_period_2018-2024.parquet`. Output: `Results_severe_P1_decline_analy
 
 The user selected two samples: `Rank2019` and `Rank2019_Manufacturing`. Both use the main OLS nominal complete-trajectory requirement. The manufacturing sample is nested within the ranking sample; the two results are not independent replications. There is no ALL or manufacturing-only scenario grid, FULL model, quantile model, or duplicated raw/baseline variant.
 
-`code_config.MANUAL_EXCLUSIONS` now applies the same four specified company exclusions as all main regressions and diagnostics, before sample selection, fixed-group construction and transformations. The README reports each configured firm, verified NIP and removed/already-absent status. Orlen is already absent from the canonical input; Ignitis, Elektrobudowa and Kania are removed from the analysis in memory. Canonical files retain their rows and schema.
+`code_config.MANUAL_EXCLUSIONS` now applies the same five specified company exclusions as all main regressions and diagnostics, before sample selection, fixed-group construction and transformations. The README reports each configured firm, verified NIP, reason code/description and removed/already-absent status. Orlen is already absent from the canonical input; Ignitis, Elektrobudowa, Kania and Globus are removed from the analysis in memory. Canonical files retain their rows and schema.
 
 Current group counts before model-specific missing-value exclusions:
 
 | Sample | Analytical N | Below −15% | Below −20% | Below −25% |
 | --- | --- | --- | --- | --- |
-| Rank2019 | 1,824 | 342 (18.75%) | 227 (12.45%) | 154 (8.44%) |
+| Rank2019 | 1,823 | 342 (18.76%) | 227 (12.45%) | 154 (8.45%) |
 | Rank2019_Manufacturing | 786 | 133 (16.92%) | 87 (11.07%) | 53 (6.74%) |
 
-Logit complete-case N is 1,787 and 781, respectively; P2 N is 1,793 and 782; P3 N is 1,797 and 783. Each period uses the same N across its group-only and interaction models and across thresholds.
+Logit complete-case N is 1,787 and 781, respectively; P2 N is 1,792 and 782; P3 N is 1,796 and 783. Each period uses the same N across its group-only and interaction models and across thresholds.
 
 ## Fixed severe-decline definitions
 
@@ -88,7 +88,7 @@ Exactly eight sheets are produced, in the requested order:
 
 The methodological audit on 6 October 2026 extended these same eight tabs, without replacing primary estimates: raw growth 5th/95th percentiles and maxima in `01`; separation/sector counts and a diagnostic ranking MLE comparison in `02`; matched-sample P2 without-lag sensitivity in `04`; and VIF/subgroup variation/outlier influence in `06`. `07` now also displays capital-ratio AMEs across thresholds. Sample display labels match the main uppercase scenario names; the internal shared mask keys remain `Rank2019` and `Rank2019_Manufacturing`. Coefficient tables explicitly label z-score versus dummy/product scale. Continuous AMEs are explicitly local derivatives, not finite one-SD probability jumps.
 
-The original `documentation_severe_p1_decline_audit.md` is retained as a historical pre-exclusion audit. Its scaling/covariance checks remain valid, but its numerical estimates are superseded by the current workbook and `documentation_manual_exclusions.md`. After the requested exclusions, manufacturing P3 profitability VIF is 1.533 (interaction 1.306), the −20% interaction is +0.206862 (p=.010196), and the severe-group slope is +0.143884 (p=.057676). Ranking P3 still has an extreme profitability predictor from Globus sp. z o.o., Warszawa (NIP 7773261746), responsible for 99.56% of predictor variation. No unrequested outlier exclusion or predictor winsorisation was introduced; these results should not be called broadly robust.
+The original `documentation_severe_p1_decline_audit.md` is retained as a historical pre-exclusion audit. Its scaling/covariance checks remain valid, but its numerical estimates are superseded by the current workbook and `documentation_manual_exclusions.md`. After the five requested exclusions, manufacturing P3 profitability VIF is 1.533 (interaction 1.306), the −20% interaction is +0.206862 (p=.010196), and the severe-group slope is +0.143884 (p=.057676). Globus is now excluded. Ranking P3 remains influenced by Ordipol sp. z o.o. (w upadłości), Bielany Wrocławskie (NIP 6772001669), responsible for 87.96% of predictor variation, with profitability VIF 11.784 (interaction 11.645). No unrequested outlier exclusion or predictor winsorisation was introduced; these results should not be called broadly robust.
 
 Ranking has no complete/quasi-complete separation and ordinary MLE converges at all thresholds. The current common-Firth choice was retained rather than automatically changed; the audit recommends ordinary MLE for ranking and Firth for manufacturing as a future methodological choice. Approximate Wald/delta covariance in this project uses original expected Fisher information, not current R logistf's augmented-data covariance implementation or profile likelihood. Main OLS and supplementary OLS both use the shared `nonrobust` setting; no robust-covariance replacement was made.
 

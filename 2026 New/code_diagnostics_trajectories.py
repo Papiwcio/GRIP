@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import textwrap
 
 import numpy as np
 import pandas as pd
@@ -1650,6 +1651,11 @@ def write_sheet(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame, forma
         worksheet.set_column(4, 4, 55, formats["wrap"])
         worksheet.set_column(5, 5, 85, formats["wrap"])
         worksheet.set_default_row(30)
+        for row_idx, record in enumerate(df.to_dict('records'), start=1):
+            if record['block'] == 'manual exclusions':
+                lines = max(len(textwrap.wrap(str(record['reader_use']), width=50)),
+                            len(textwrap.wrap(str(record['description']), width=80)), 1)
+                worksheet.set_row(row_idx, max(30, lines * 15 + 6))
     if sheet_name in {"20_CORR_MAIN_BASELINE", "21_CORR_MAIN_WINSOR"}:
         for row_idx, row_type in enumerate(df["row_type"], start=1):
             if row_type == "section":
