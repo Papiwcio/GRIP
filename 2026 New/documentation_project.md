@@ -27,7 +27,7 @@ Run commands from this directory:
 
 Shared model settings and metadata live in `code_config.py`; shared helpers live in `code_helpers.py`. Documentation of formulas, samples, preprocessing, and output tabs remains in the corresponding `documentation_*.md` files.
 
-The current datasets cover 2018–2024, with 2018 supporting the P1 lag. Main outcomes remain 2019–2024. Files ending in `2019-2024` are retained as historical dataset versions. Their data is preserved and they are not overwritten by the active builds.
+The current datasets cover 2018–2024, with 2018 supporting the P1 lag. Main outcomes remain 2019–2024. Obsolete dataset copies ending in `2019-2024` were removed from the working directory; their historical versions remain recoverable from Git history.
 
 ## Notebook scope
 
@@ -63,7 +63,13 @@ Notebooks are inspection tools, not the source of transformations or model estim
 | `check_period_ols.ipynb` | `notebook_check_ols.ipynb` |
 | `Analysis.ipynb` | `notebook_analysis.ipynb` |
 
-Historical workbooks previously in `Results/` moved to `archive/`. Dot-separated dates became ISO dates at the end of each filename; historical contents were preserved. The dated summary document is `archive/summary_2026-09-29.docx`. The original single-sample OLS comparison reference now resolves to `archive/results_ols_2026-05-06.xlsx`.
+During migration, historical workbooks previously in `Results/` moved to `archive/`. Dot-separated dates became ISO dates at the end of each filename; historical contents were preserved during that rename. The dated summary document was renamed to `archive/summary_2026-09-29.docx` before its subsequent removal in the cleanup below. The retained original single-sample OLS comparison reference resolves to `archive/results_ols_2026-05-06.xlsx`.
+
+## Unused-file cleanup on 6 October 2026
+
+After the naming migration, five obsolete dataset copies were removed: the Parquet and Excel core and period datasets for 2019–2024, and the 2019–2024 enriched panel input. Seven unused archived results and summary files were also removed. Their contents remain recoverable from earlier Git commits.
+
+The only retained archive file is `archive/results_ols_2026-05-06.xlsx`, which `code_ols_scenarios.py` still reads for its historical output-comparison check. It is a validation reference, not the current model input. Active datasets, exports, scripts, documentation, inspection notebooks, and results remain in place. Local obsolete bytecode caches were cleared.
 
 File and import changes do not rename dataset columns, change formulas, change regression specifications, or alter stored dataset values. Active results workbooks are regenerated so their embedded paths and module references use the current filenames.
 

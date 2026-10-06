@@ -46,7 +46,7 @@ This is the canonical firm-level period dataset derived from the annual canonica
 
 This is a legacy enriched panel input and is not the canonical master file.
 
-The 2018 extension supports the P1 lag based on 2018–2019. Main analysis outcomes remain 2019–2024. Earlier `data_*_2019-2024` files are retained as historical versions, not the active build targets.
+The 2018 extension supports the P1 lag based on 2018–2019. Main analysis outcomes remain 2019–2024. Obsolete `data_*_2019-2024` copies were removed from the working directory; historical versions remain recoverable from Git history.
 
 ## File naming convention
 
@@ -57,6 +57,8 @@ The 2018 extension supports the P1 lag based on 2018–2019. Main analysis outco
 - Notebooks: `notebook_<purpose>.ipynb`
 - Historical results: `archive/results_<analysis>_<YYYY-MM-DD>.xlsx`; retain undated snapshots without inventing dates
 - Keep the special filename `AGENTS.md` unchanged
+
+Keep only active workflow files and explicitly used validation references. The archived `archive/results_ols_2026-05-06.xlsx` remains an input to the OLS historical-comparison check; other obsolete snapshots have been removed.
 
 Use lowercase filenames. Update imports, paths, workbook descriptions, and notebook references whenever a file is renamed. See `documentation_project.md` for the current workflow and migration map.
 
