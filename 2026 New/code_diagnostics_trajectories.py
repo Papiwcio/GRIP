@@ -16,6 +16,8 @@ from code_config import (
     TRAJECTORY_LEVEL_ORDER,
     build_ownership_labels,
     build_sample_mask,
+    apply_manual_exclusions,
+    manual_exclusion_readme_rows,
     get_trajectory_family_config,
     build_scenario_mask,
     get_scenario_definitions,
@@ -225,6 +227,8 @@ def build_structure_readme(config: dict[str, Any]) -> pd.DataFrame:
             ),
         ),
     ]
+    rows.extend(("manual exclusions", "all", "grey", item, "Apply consistently with every regression.", description)
+                for item, description in manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])))
     return pd.DataFrame(
         rows,
         columns=[
@@ -600,7 +604,7 @@ def build_scenario_analysis_inputs(
     input_path = Path(config["input_file"])
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
-    input_df = pd.read_parquet(input_path)
+    input_df, config["manual_exclusion_audit"] = apply_manual_exclusions(pd.read_parquet(input_path))
     validate_input_columns(input_df, config, models)
 
     scenario_definitions = get_scenario_definitions()
@@ -1906,7 +1910,8 @@ def run_trajectory_analysis(
     validate_scenario_alignment(scenario_names, list(get_scenario_definitions()))
     print(f"final_ordered_scenarios: {scenario_names}")
 
-    df = load_input_data(input_path).copy()
+    df, exclusion_audit = apply_manual_exclusions(load_input_data(input_path))
+    config["manual_exclusion_audit"] = exclusion_audit
     validate_input(df, columns)
     performance_band_columns = resolve_performance_band_columns(df, columns["trajectory_family"])
     performance_band_columns = {

@@ -20,6 +20,9 @@ from code_config import (
     SCENARIO_LABELS,
     VARIABLE_LABELS,
     build_sample_mask,
+    apply_manual_exclusions,
+    manual_exclusion_mask,
+    manual_exclusion_readme_rows,
     get_period_model_settings,
     get_scenario_definitions,
     period_dependent_metadata,
@@ -794,7 +797,9 @@ def load_input_data(config: dict[str, Any]) -> pd.DataFrame:
     input_path = Path(config["input_file"])
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}. Change CONFIG['input_file'].")
-    return pd.read_parquet(input_path)
+    data, audit = apply_manual_exclusions(pd.read_parquet(input_path))
+    config["manual_exclusion_audit"] = audit
+    return data
 
 
 def get_required_columns(config: dict[str, Any], models: dict[str, dict[str, Any]]) -> list[str]:
@@ -1872,6 +1877,7 @@ def apply_scenario_filter(
     scenario_name: str,
     filter_query: str | None,
 ) -> pd.DataFrame:
+    df = df.loc[~manual_exclusion_mask(df)]
     if scenario_name in SHARED_SAMPLE_SCENARIOS:
         sample_name = SHARED_SAMPLE_SCENARIOS[scenario_name]
         return df.loc[build_sample_mask(df, sample_name)].copy()
@@ -2281,6 +2287,7 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Input file", config["input_file"]),
         ("Output file", config["output_file"]),
         ("Growth mode", config["growth_mode"]),
+        *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
         ("Dependent variable", f"{config['growth_mode'].title()} annualised log sales growth; measured in log points per year, rather than a log sales level or CAGR."),
         ("Sales basis", period_dependent_metadata(config["growth_mode"], "FULL")["sales_basis"]),
         *[

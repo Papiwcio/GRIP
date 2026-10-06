@@ -17,6 +17,63 @@ from typing import Any
 import pandas as pd
 
 
+# Manual analytical exclusions. Keep canonical data intact; apply before
+# scenario selection, complete-case filtering, winsorisation and scaling.
+MANUAL_EXCLUSIONS = {
+    "enabled": True,
+    "companies": [
+        {"company": "Orlen SA GK, Płock", "nip": "7740001454"},
+        {"company": "Ignitis Polska sp. z o.o., Warszawa", "nip": "5252714003"},
+        {"company": "Elektrobudowa SA w upadłości likwidacyjnej GK, Katowice", "nip": "6340135506"},
+        {"company": "Zakłady Mięsne Henryk Kania SA w upadłości", "nip": "7440003325"},
+    ],
+}
+
+
+def manual_exclusion_mask(df: pd.DataFrame) -> pd.Series:
+    """Match verified NIPs or exact company names, ignoring outer whitespace."""
+    mask = pd.Series(False, index=df.index, dtype=bool)
+    if not MANUAL_EXCLUSIONS["enabled"]:
+        return mask
+    if not {"company", "nip"}.issubset(df.columns):
+        raise ValueError("Manual exclusions require company and nip columns.")
+    names = df.company.astype("string").str.strip()
+    nips = df.nip.astype("string").str.strip()
+    for entry in MANUAL_EXCLUSIONS["companies"]:
+        mask |= (names.eq(entry["company"]) | nips.eq(entry["nip"])).fillna(False)
+    return mask
+
+
+def apply_manual_exclusions(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Exclude whole firms and record present/absent status for every rule."""
+    mask = manual_exclusion_mask(df)
+    rows = []
+    names = df.company.astype("string").str.strip()
+    nips = df.nip.astype("string").str.strip()
+    for entry in MANUAL_EXCLUSIONS["companies"]:
+        matched = (names.eq(entry["company"]) | nips.eq(entry["nip"])).fillna(False)
+        if not MANUAL_EXCLUSIONS["enabled"]:
+            matched &= False
+        observed = df.loc[matched]
+        rows.append({**entry, "matched_firms": int(observed.nip.nunique()),
+                     "matched_rows": len(observed),
+                     "observed_names": "; ".join(sorted(observed.company.dropna().astype(str).unique())),
+                     "status": "Removed from analysis" if matched.any() else
+                               "Already absent from input" if MANUAL_EXCLUSIONS["enabled"] else "Disabled"})
+    filtered = df.loc[~mask].copy()
+    assert not manual_exclusion_mask(filtered).any()
+    print(f"Manual exclusions enabled={MANUAL_EXCLUSIONS['enabled']}: input rows={len(df)}, output rows={len(filtered)}, removed firms={df.loc[mask, 'nip'].nunique()}")
+    print(pd.DataFrame(rows).to_string(index=False))
+    return filtered, rows
+
+
+def manual_exclusion_readme_rows(audit: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """One common README block for regression and diagnostic workbooks."""
+    rows = [("Manual exclusions", f"Enabled={MANUAL_EXCLUSIONS['enabled']}. Shared code_config.MANUAL_EXCLUSIONS; match verified NIP or exact company name (outer whitespace ignored). Applied before analytical filtering and all transformations. Canonical data retained.")]
+    rows.extend((f"Manual exclusion {i}", f"{entry['company']} | NIP {entry['nip']} | {entry['status']} | firms={entry['matched_firms']}, rows={entry['matched_rows']}") for i, entry in enumerate(audit, 1))
+    return rows
+
+
 PERIODS = {
     "P1": {"start": 2019, "end": 2020, "years": 1},
     "P2": {"start": 2020, "end": 2022, "years": 2},
@@ -155,7 +212,7 @@ def build_sample_mask(df: pd.DataFrame, sample_name: str, complete_flag_column: 
     if sample_name not in SAMPLE_ORDER:
         raise ValueError(f"Unknown sample_name {sample_name!r}. Expected one of: {SAMPLE_ORDER}.")
 
-    mask = pd.Series(True, index=df.index, dtype=bool)
+    mask = ~manual_exclusion_mask(df)
     if complete_flag_column is not None:
         if complete_flag_column not in df.columns:
             raise ValueError(f"Complete-flag column not found: {complete_flag_column}")
@@ -361,7 +418,7 @@ def build_scenario_mask(
     if sample_name is not None:
         return build_sample_mask(df, sample_name, complete_flag_column)
 
-    mask = pd.Series(True, index=df.index, dtype=bool)
+    mask = ~manual_exclusion_mask(df)
     if complete_flag_column is not None:
         if complete_flag_column not in df.columns:
             raise ValueError(f"Complete-flag column not found: {complete_flag_column}")

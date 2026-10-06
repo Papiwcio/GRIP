@@ -15,7 +15,7 @@ from scipy.special import expit
 from scipy.stats import chi2, norm, t
 
 import code_ols_scenarios as ols
-from code_config import build_sample_mask, period_dependent_metadata
+from code_config import build_sample_mask, period_dependent_metadata, apply_manual_exclusions, manual_exclusion_readme_rows
 
 
 CONFIG = {
@@ -406,6 +406,7 @@ def readme(config, shared, status):
     rows = [
         ("Purpose", "Supplementary P1 vulnerability → P2 recovery → P3 subsequent development analysis. Associations are descriptive, not causal."),
         ("Input file", config["input_file"]), ("Output file", config["output_file"]),
+        *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
         ("Samples", "RANK2019 (primary) and RANK2019_MANUFACTURING (secondary). Internal shared masks are Rank2019 and Rank2019_Manufacturing. Manufacturing is nested within ranking; these are not independent replications."),
         ("Price basis", f"{mode.title()} sales growth. All model outcomes and lags follow code_config.PERIOD_MODEL_SETTINGS."),
         ("Primary definition", f"BottomP1_20 = 1 only when {ols.get_growth_prefix(shared)}growth_P1 < -0.20; equality is outside the severe group. Membership is fixed by P1."),
@@ -426,7 +427,7 @@ def readme(config, shared, status):
         ("Growth controls", "Same period starting covariates, ownership, export_ratio × ln_sales, sector controls and lag growth as main OLS. P2's group coefficient is conditional on P1 growth through its lag; it is an incremental threshold association."),
         ("Selected interaction", "Only standardised profit_margin × BottomP1, estimated separately for P2 and P3. Do not restandardise this product. The ordinary-firm slope is β1, the severe-group slope β1+β3, and the slope difference β3. The group main effect is evaluated at mean profitability."),
         ("Interaction audit", "Both profitability main effect and interaction use exactly the same z-score; combined inference uses Var(β1)+Var(β3)+2Cov(β1,β3). No scaling mismatch was found."),
-        ("Influence warning", "Manufacturing P3 profitability inference is fragile: the 2022 ratio 2111/28=75.392857 for nip 7440003325 dominates its variance; profitability VIFs exceed 2300. P2 profitability interactions are also highly collinear. Primary models retain these firms and predictors."),
+        ("Influence warning", "The earlier dominant firm nip 7440003325 is now manually excluded in all analyses. Recomputed VIF, subgroup-variation and influence diagnostics describe the current samples; exclusion of that firm alone does not establish robustness."),
         ("Raw-growth mean warning", "Descriptive growth is raw. Ranking non-Bottom P1 and P3 means are strongly inflated by individual extreme observations; use the appended median/5th/95th/max audit alongside means."),
         ("P2 lag sensitivity", "An additional -20% diagnostic removes the continuous P1-growth lag on exactly the same sample and outcome scaling. It does not replace the primary model. Both versions remain conditional associations, not causal recovery effects."),
         ("Estimator comparison", "Ordinary MLE works without separation for Rank2019 at all thresholds. Firth was deliberately used in both samples for consistency and is retained. The principal ranking MLE comparison is diagnostic only; manufacturing requires separation handling."),
@@ -548,6 +549,7 @@ def run_analysis(config=None):
     data = pd.read_parquet(source)
     if data.nip.isna().any() or data.nip.duplicated().any():
         raise ValueError("Period data must have non-missing, unique nip identifiers.")
+    data, config["manual_exclusion_audit"] = apply_manual_exclusions(data)
     prefix = ols.get_growth_prefix(shared)
     p1_growth = f"{prefix}growth_P1"
     models = ols.build_models(shared)

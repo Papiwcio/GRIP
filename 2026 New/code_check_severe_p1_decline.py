@@ -125,6 +125,19 @@ def check_results(result):
 
 def independent_data_checks(result):
     """Reproduce OLS algebra and actual-data AMEs without reporting helpers."""
+    if result['config']['logit_method'] == 'firth':
+        for (sample, threshold), model in result['logits'].items():
+            prepared = result['prepared'][sample, 'P1']
+            x = prepared.x.to_numpy()
+            y = result['frames'][sample].loc[prepared.x.index, f'BottomP1_{threshold}'].to_numpy(dtype=float)
+            optimum = minimize(lambda b: -analysis.firth_state(x, y, b)[0], np.zeros(x.shape[1]),
+                               jac=lambda b: -analysis.firth_state(x, y, b)[1], method='BFGS', options={'gtol': 1e-7})
+            np.testing.assert_allclose(optimum.x, model['fit'].beta, atol=2e-6)
+            # BFGS can flag floating-point precision loss at the optimum.
+            # Verify coefficient and objective agreement directly; the primary
+            # adjusted-score solver still must meet its stricter 1e-8 criterion.
+            np.testing.assert_allclose(-optimum.fun, model['fit'].penalized_loglik, atol=1e-8, rtol=0)
+        print('PASS: all six actual-data Firth fits reproduced with a separate BFGS optimiser.')
     for fitted_block in ['growths', 'interactions']:
         for model in result[fitted_block].values():
             fit = model['fit']

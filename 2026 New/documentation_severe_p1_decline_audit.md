@@ -1,5 +1,7 @@
 # Severe P1 Decline — methodological and technical audit
 
+**Historical audit of the pre-manual-exclusion specification.** The numerical tables below describe the original 6 October 2026 audit, when Ignitis, Elektrobudowa and Kania were still included. The subsequent user-authorised manual-exclusion rerun supersedes those estimates in the current workbook. See `documentation_manual_exclusions.md` and the updated `documentation_severe_p1_decline.md` for current samples/results. The old outlier findings are retained as the explanation for the correction, not as current estimates. Running the audit/check scripts now reproduces the current excluded sample.
+
 Audit date: 6 October 2026. The requested source name `run_severe_p1_decline_analysis.py` is not present; the actual maintained source is `code_severe_p1_decline.py`, following the agreed naming convention. The audited output is `Results_severe_P1_decline_analysis.xlsx`.
 
 The original code and workbook were inspected and reproduced to temporary files before project changes. Findings were reported to the user before changes. Primary specifications, estimator choices, financial data, and main OLS outputs were preserved.

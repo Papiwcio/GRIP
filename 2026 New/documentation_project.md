@@ -31,6 +31,8 @@ The separate severe-P1 supplement runs with `python3 code_severe_p1_decline.py`;
 
 Shared model settings and metadata live in `code_config.py`; shared helpers live in `code_helpers.py`. Documentation of formulas, samples, preprocessing, and output tabs remains in the corresponding `documentation_*.md` files.
 
+Manual analytical exclusions are maintained once in `code_config.MANUAL_EXCLUSIONS`, including the four requested exact names and verified NIPs. OLS, quantile, severe-P1 and diagnostics apply them before sample selection and all model transformations. Every results README records each firm's removed/already-absent status. Canonical datasets retain their original rows and performance thresholds. Run `python3 code_check_manual_exclusions.py` to check cross-pipeline alignment; see `documentation_manual_exclusions.md` for the current exclusion audit and rerun results.
+
 The current datasets cover 2018–2024, with 2018 supporting the P1 lag. Main outcomes remain 2019–2024. Obsolete dataset copies ending in `2019-2024` were removed from the working directory; their historical versions remain recoverable from Git history.
 
 ## Notebook scope
