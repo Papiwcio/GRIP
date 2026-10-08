@@ -1586,6 +1586,9 @@ def build_dropped_rows_table(
         "missing_values_count",
         "row_index",
         "reason",
+        "exclusion_stage",
+        "reason_code",
+        "scope",
     ]
     rows = []
     company_column = find_company_name_column(filtered_df)
@@ -1619,12 +1622,64 @@ def build_dropped_rows_table(
                         "missing_values_count": len(missing_columns),
                         "row_index": row_index,
                         "reason": get_missing_reason(dependent_missing, control_missing),
+                        "exclusion_stage": "model_complete_case",
+                        "reason_code": "MODEL_MISSING_VALUES",
+                        "scope": "Specific model",
                     }
                 )
 
     if not rows:
         return pd.DataFrame(columns=output_columns)
     return pd.DataFrame(rows, columns=output_columns)
+
+
+def build_pre_model_exclusion_table(source_df, scenario_results, config):
+    """Reporting only: first exclusion stage per source firm/scenario.
+
+    Pre-model rows cover all variants once (model/period are empty); they must
+    never enter model-specific missing-value counts or estimator inputs.
+    """
+    if source_df.nip.isna().any() or source_df.nip.duplicated().any():
+        raise ValueError("Full exclusion audit requires one source row per identified firm.")
+    manual = manual_exclusion_mask(source_df)
+    flag = trajectory_col(config)
+    outcomes = [growth_col(config, period) for period in ["P1", "P2", "P3"]]
+    rows = []
+    for scenario, results in scenario_results.items():
+        eligible = apply_scenario_filter(source_df.loc[~manual], scenario, SCENARIOS[scenario])
+        selected_frame = results["filtered_df"]
+        selected = set(selected_frame.nip.astype(str)) if "nip" in selected_frame else set()
+        eligible_ids = set(eligible.nip.astype(str))
+        for index, firm in source_df.iterrows():
+            nip = str(firm.nip)
+            if nip in selected:
+                continue
+            missing = []
+            reason_code = ""
+            if manual.loc[index]:
+                stage = "manual_exclusion"
+                matches = [entry for entry in config.get("manual_exclusion_audit", [])
+                           if nip.strip() == str(entry["nip"]).strip() or str(firm.company).strip() == entry["company"]]
+                reason_code = "; ".join(entry["reason_code"] for entry in matches)
+                reason = "; ".join(entry["reason_description"] for entry in matches) or "Shared manual exclusion rule."
+            elif nip not in eligible_ids:
+                stage, reason_code = "scenario_not_eligible", "SCENARIO_MEMBERSHIP"
+                reason = f"Does not meet scenario definition: {scenario_definition_text(scenario, SCENARIOS[scenario])}. This is sample scope, not a data-quality finding."
+            elif pd.isna(firm[flag]) or firm[flag] != 1:
+                stage, reason_code = "incomplete_trajectory", "INCOMPLETE_TRAJECTORY"
+                missing = [column for column in outcomes if pd.isna(firm[column]) or not np.isfinite(float(firm[column]))]
+                reason = f"{flag} is not 1; full P1/P2/P3 trajectory required even for P1 and FULL models. Unavailable growth: {', '.join(missing) or 'see trajectory flag'}. Log growth requires positive, observed endpoint sales."
+            else:
+                stage, reason_code = "sample_filter", "BASE_SAMPLE_FILTER"
+                reason = f"Does not satisfy base sample filter: {get_sample_filter(config)}."
+            rows.append({"scenario": scenario, "model": "", "period": "", "nip": firm.nip,
+                         "company": firm.company, "missing_columns": ", ".join(missing),
+                         "missing_values_count": len(missing), "row_index": index,
+                         "reason": reason, "exclusion_stage": stage, "reason_code": reason_code,
+                         "scope": "All models in scenario", "trajectory_flag": flag,
+                         "trajectory_flag_value": firm[flag], "in_rank_2019": firm.in_rank_2019,
+                         "manufacturing": firm.manufacturing})
+    return pd.DataFrame(rows)
 
 
 def summarize_top_missing_columns(dropped_rows_df: pd.DataFrame, model_name: str) -> str:
@@ -2406,6 +2461,7 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Standardisation", f"standardised_models={config['standardised_models']}; standardise_dependent={config['standardise_dependent']}."),
         ("Significance stars", "*** p<0.01; ** p<0.05; * p<0.10."),
         ("Workbook structure", "Working tabs come first. Tabs after AUDIT_AND_TECHNICAL_TABS are technical diagnostics and reproducibility audit trails."),
+        ("Dropped-firm audit", "Dropped_Rows_Long covers the original period input. exclusion_stage records the first removal: manual_exclusion, scenario_not_eligible, incomplete_trajectory, sample_filter, or model_complete_case. Pre-model rows occur once per firm/scenario, with empty model/period and scope='All models in scenario'; model_complete_case rows retain each model/variant. Scenario non-membership is sample scope, not a quality failure. For each model: source firms = pre-model exclusions + model-specific missing-value exclusions + estimated N. Manual rules already absent upstream remain documented below."),
         *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
     ]
     return pd.DataFrame(rows, columns=["item", "description"])
@@ -3490,6 +3546,12 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG, write_output: bool
     coefficient_frames = [result["coefficients_long_df"] for result in scenario_results.values() if not result["coefficients_long_df"].empty]
     diagnostics_frames = [result["diagnostics_df"] for result in scenario_results.values() if not result["diagnostics_df"].empty]
     dropped_row_frames = [result["dropped_rows_df"] for result in scenario_results.values() if not result["dropped_rows_df"].empty]
+    # Re-read the unchanged source solely for the exclusion audit: the fitting
+    # loader has already removed manual exclusions, so its input is incomplete
+    # as a record of all original firms. This frame never reaches estimation.
+    pre_model_exclusions = build_pre_model_exclusion_table(pd.read_parquet(config["input_file"]), scenario_results, config)
+    if not pre_model_exclusions.empty:
+        dropped_row_frames.insert(0, pre_model_exclusions)
 
     summary_long_df = pd.concat(summary_frames, ignore_index=True) if summary_frames else frames["summary"]
     coefficients_long_df = pd.concat(coefficient_frames, ignore_index=True) if coefficient_frames else frames["coefficients"]

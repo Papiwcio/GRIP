@@ -279,7 +279,13 @@ It includes raw generated dependent variables and regressors, plus label columns
 
 ### Dropped_Rows_Long
 
-Consolidated audit trail for rows dropped from model estimation because of missing dependent, regressor, or categorical-control values.
+Full source-to-estimation audit trail. The first applicable pre-model removal is recorded once per firm and scenario: shared manual exclusion, scenario non-membership, incomplete P1/P2/P3 growth trajectory, or another base sample filter. These rows have empty `model`/`period` and `scope = All models in scenario`. Firms outside a scenario are labelled `scenario_not_eligible`; this is sample scope, not a data-quality finding.
+
+Within the eligible complete-trajectory sample, missing dependent, regressor or categorical-control values remain recorded separately for each model/variant, with `exclusion_stage = model_complete_case` and `scope = Specific model`. These existing missing-value records and diagnostic counts are unchanged. Do not sum all model-specific rows to count distinct firms: a firm can be excluded from several models.
+
+For every scenario/model, original input firms = unique pre-model exclusions + that model's missing-value exclusions + estimated N. Pre-model exclusions take precedence, so an incomplete-trajectory firm with additional missing covariates is not counted twice. Manual rules already absent from the period input (currently Orlen) have no fabricated dropped row; their status remains in the README manual-exclusion audit. The audit describes the original period input, not firms removed earlier during source-data preparation.
+
+Vicis New Investments SA, Warszawa (NIP 5242617178) is recorded as `incomplete_trajectory` for ALL/RANK2019: its complete nominal-trajectory flag is 0 and P2/P3 log growth is missing. Its P1 data availability does not override the common complete-trajectory requirement. For manufacturing-only scenarios it is recorded as `scenario_not_eligible`, since manufacturing is 0.
 
 Columns include:
 
@@ -298,6 +304,19 @@ Columns include:
 - `missing_values_count`
 - `row_index`
 - `reason`
+- `exclusion_stage`
+- `reason_code`
+- `scope`
+- `trajectory_flag`
+- `trajectory_flag_value`
+- `in_rank_2019`
+- `manufacturing`
+
+`python code_refresh_ols_exclusion_audit.py` refreshes only `Dropped_Rows_Long` and the corresponding README explanation in the primary workbook. It rebuilds records using the shared engine's exact sample and missing-value rules, verifies existing model-specific records and all saved N counts, and preserves every other XLSX component byte-for-byte, including researcher formatting and notes. It does not estimate models or rewrite other analysis workbooks. Normal primary-report builds also generate the full audit automatically.
+
+Validation: `python code_check_ols_exclusion_audit.py` checks firm-ID partitions for all 64 models, Vicis's stage, present/absent manual rules, regression equivalence, saved-report reconciliation and preservation of unrelated workbook components.
+
+On 8 October 2026, all 6 exclusion-audit tests and 10 existing full-report tests passed. The updated tab contains 6,214 records: 4,010 pre-model firm/scenario exclusions and the unchanged 2,204 model-specific missing-value records. All 64 partitions reconcile to the 2,533 source firms. Coefficients, inference, fit statistics and sample hashes match the current primary regression results; only the audit worksheet and its README explanation were refreshed.
 
 ### Coefficients_Long
 
