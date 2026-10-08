@@ -9,7 +9,7 @@ import hashlib
 import io
 from pathlib import Path
 import re
-import xml.etree.ElementTree as ET
+from lxml import etree as ET
 from zipfile import ZipFile
 
 import numpy as np
@@ -18,7 +18,27 @@ import code_ols_scenarios as engine
 
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-ET.register_namespace("", NS)
+# Preserve the source namespace map. ElementTree drops declarations that occur
+# only inside mc:Ignorable/QName attribute VALUES; Excel then discards the sheet.
+MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+
+def validate_worksheet_xml(xml):
+    root = ET.fromstring(xml)
+    for element in root.iter():
+        for attribute, value in element.attrib.items():
+            if attribute == f"{{{MC}}}Ignorable":
+                for prefix in value.split():
+                    if prefix not in element.nsmap:
+                        raise ValueError(f"Undeclared Excel compatibility prefix: {prefix}")
+            elif attribute in {f"{{{MC}}}MustUnderstand", f"{{{MC}}}ProcessContent", f"{{{MC}}}PreserveAttributes", f"{{{MC}}}PreserveElements"}:
+                for token in value.split():
+                    prefix = token.split(":")[0]
+                    if prefix not in element.nsmap:
+                        raise ValueError(f"Undeclared Excel compatibility QName: {token}")
+    if root.find(f"{{{NS}}}sheetData") is None:
+        raise ValueError("Missing worksheet data element.")
+    return root
 
 
 def build_audit(config=engine.CONFIG):
@@ -77,7 +97,7 @@ def add_cell(row, reference, value, style=None):
 
 
 def replace_audit_sheet(xml, table):
-    root = ET.fromstring(xml)
+    root = validate_worksheet_xml(xml)
     data = root.find(f"{{{NS}}}sheetData")
     old = list(data)
     header_style = old[0][0].get("s")
@@ -117,11 +137,13 @@ def replace_audit_sheet(xml, table):
     for i, name in enumerate(table.columns, 1):
         if i > 15:
             ET.SubElement(cols, f"{{{NS}}}col", {"min": str(i), "max": str(i), "width": "34", "customWidth": "1"})
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    output = ET.tostring(root, encoding="UTF-8", xml_declaration=True, standalone=True)
+    validate_worksheet_xml(output)
+    return output
 
 
 def insert_readme_note(xml, strings, description):
-    root = ET.fromstring(xml)
+    root = validate_worksheet_xml(xml)
     data = root.find(f"{{{NS}}}sheetData")
     def text(cell):
         value = cell.find(f"{{{NS}}}v")
@@ -145,7 +167,9 @@ def insert_readme_note(xml, strings, description):
     add_cell(new, f"B{insertion}", description, template[1].get("s"))
     data.insert(insertion-1, new)
     root.find(f"{{{NS}}}dimension").set("ref", f"A1:B{max(int(row.get('r')) for row in data)}")
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    output = ET.tostring(root, encoding="UTF-8", xml_declaration=True, standalone=True)
+    validate_worksheet_xml(output)
+    return output
 
 
 def refresh(destination="results_ols_scenarios.xlsx"):
@@ -176,6 +200,8 @@ def refresh(destination="results_ols_scenarios.xlsx"):
         for info in infos: out.writestr(info, changed.get(info.filename, parts[info.filename]))
     with ZipFile(temporary) as check:
         assert all(check.read(name) == value for name, value in parts.items() if name not in changed)
+        for name in changed:
+            validate_worksheet_xml(check.read(name))
     if hashlib.sha256(path.read_bytes()).digest() != before_hash:
         temporary.unlink()
         raise RuntimeError("Workbook changed concurrently; update not published.")

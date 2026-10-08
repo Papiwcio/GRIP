@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from zipfile import ZipFile
+from lxml import etree as ET
 
 import numpy as np
 import pandas as pd
@@ -82,9 +83,29 @@ class ExclusionAuditTests(unittest.TestCase):
                 # styles, notes, filters, panes, shared strings and workbook metadata.
                 changed = [name for name in old.namelist() if old.read(name)!=new.read(name)]
                 self.assertTrue(set(changed).issubset({'xl/worksheets/sheet1.xml','xl/worksheets/sheet7.xml'}))
+                for name in ['xl/worksheets/sheet1.xml','xl/worksheets/sheet7.xml']:
+                    before=ET.fromstring(old.read(name))
+                    after=audit.validate_worksheet_xml(new.read(name))
+                    self.assertEqual(before.nsmap,after.nsmap)
             saved = pd.read_excel(destination, sheet_name='Dropped_Rows_Long')
             self.assertEqual(len(saved), len(self.table))
             self.assertEqual(saved.exclusion_stage.value_counts().to_dict(), self.table.exclusion_stage.value_counts().to_dict())
+
+    def test_rejects_excel_compatibility_prefix_loss(self):
+        # Well-formed XML can still be rejected by Excel when mc:Ignorable
+        # references undeclared namespaces. The original repair escaped parser
+        # and numerical checks; reproduce that precise failure here.
+        invalid=f'<worksheet xmlns="{audit.NS}" xmlns:mc="{audit.MC}" mc:Ignorable="x14ac xr2"><sheetData/></worksheet>'
+        ET.fromstring(invalid.encode())  # Ordinary XML parsing wrongly passes.
+        with self.assertRaisesRegex(ValueError,'Undeclared Excel compatibility prefix'):
+            audit.validate_worksheet_xml(invalid.encode())
+
+    def test_preserves_unused_qname_namespace_declarations(self):
+        xml=f'<worksheet xmlns="{audit.NS}" xmlns:mc="{audit.MC}" xmlns:xr2="http://schemas.microsoft.com/office/spreadsheetml/2015/revision2" mc:Ignorable="xr2"><dimension ref="A1:B3"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>item</t></is></c><c r="B1" t="inlineStr"><is><t>description</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Purpose</t></is></c><c r="B2" t="inlineStr"><is><t>Test</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Manual exclusions</t></is></c><c r="B3" t="inlineStr"><is><t>Test</t></is></c></row></sheetData></worksheet>'
+        updated=audit.insert_readme_note(xml.encode(),[], 'Full exclusion audit.')
+        root=audit.validate_worksheet_xml(updated)
+        self.assertIn('xr2',root.nsmap)
+        self.assertEqual(root.get(f'{{{audit.MC}}}Ignorable'),'xr2')
 
     def test_live_workbooks_and_data_untouched_by_validation(self):
         for path, value in self.protected.items():

@@ -318,6 +318,8 @@ Validation: `python code_check_ols_exclusion_audit.py` checks firm-ID partitions
 
 On 8 October 2026, all 6 exclusion-audit tests and 10 existing full-report tests passed. The updated tab contains 6,214 records: 4,010 pre-model firm/scenario exclusions and the unchanged 2,204 model-specific missing-value records. All 64 partitions reconcile to the 2,533 source firms. Coefficients, inference, fit statistics and sample hashes match the current primary regression results; only the audit worksheet and its README explanation were refreshed.
 
+Subsequent Excel-compatibility correction on the same date: the first audit-only XML writer used ElementTree, which removed namespace declarations referenced only by `mc:Ignorable` attribute values. Ordinary XML parsing, workbook readers and numerical tests passed, but Microsoft Excel discarded README and Dropped_Rows_Long when repairing that package. Both sheets were recovered, including the full 6,214-record audit, while preserving all other worksheet contents and researcher notes. The updater now uses the existing environment's `lxml.etree` to retain the complete namespace map and validates compatibility-prefix/QName declarations before publishing. Two regression checks reproduce the lost-prefix failure and verify retention of otherwise-unused declarations; all **8 audit tests passed** after correction. The recovered workbook was opened, saved, closed and reopened in Microsoft Excel without a repair prompt, with all ten sheets populated. Regression estimates, sample hashes and model-specific exclusions remain unchanged.
+
 ### Coefficients_Long
 
 Full technical coefficient output.
