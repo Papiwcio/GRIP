@@ -904,6 +904,8 @@ def format_workbook(writer: pd.ExcelWriter, tables: dict[str, pd.DataFrame]) -> 
             for row_idx, label in enumerate(frame["display_name"], start=1):
                 if label in {"Dependent variable", "Dependent variable column"}:
                     worksheet.set_row(row_idx, 45, wrap)
+            from code_format_regression_tables import format_comparison_table
+            format_comparison_table(writer, sheet_name, frame)
 
 
 def validate_input_columns(df: pd.DataFrame, config: dict[str, Any]) -> None:

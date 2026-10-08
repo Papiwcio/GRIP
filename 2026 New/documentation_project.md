@@ -1,5 +1,7 @@
 # Project files and workflow
 
+Regression comparison tables share the presentation in `documentation_regression_formatting.md`: coefficients above parenthesised p-values, Arial 10, wrapping and adequate row heights. `python code_format_regression_tables.py` updates existing OLS, interaction and quantile matrices without changing values; their generators use the same shared formatter for subsequent builds.
+
 ## Naming convention
 
 Use lowercase category prefixes so alphabetical sorting groups files consistently:

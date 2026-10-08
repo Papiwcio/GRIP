@@ -228,6 +228,8 @@ def write_compact_workbook(export, profit, destination=OUTPUT):
                 else:sheet.set_column(i,i,10 if column=='period' else 24 if column=='model_specification' else 28,body)
             if name in SHEETS[1:3]:
                 for row,label in enumerate(table.display_name,1):sheet.set_row(row,42 if label.startswith('Dependent') else 30 if label not in engine.SUMMARY_ROWS else 18)
+                from code_format_regression_tables import format_comparison_table
+                format_comparison_table(writer, name, table)
             if name=='00_README':
                 for row,text in enumerate(table.description,1):sheet.set_row(row,15 * max(2,int(np.ceil(len(text)/95))))
             if name==SHEETS[3]:

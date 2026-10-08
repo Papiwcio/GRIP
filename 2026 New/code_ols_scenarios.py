@@ -3301,6 +3301,9 @@ def format_workbook(writer: pd.ExcelWriter, workbook_tables: dict[str, pd.DataFr
                     is_p_value = name.endswith("_p") or "_p_" in name
                     worksheet.set_column(column_index, column_index, max(18, min(len(name) + 2, 30)), p_value if is_p_value else decimal)
             worksheet.set_row(0, 32)
+        if sheet_name in {"Compare_Main", "Compare_Raw"}:
+            from code_format_regression_tables import format_comparison_table
+            format_comparison_table(writer, sheet_name, frame)
 
 
 def write_scenario_workbook(
