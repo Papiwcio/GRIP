@@ -4,6 +4,7 @@ from copy import deepcopy
 import hashlib
 import io
 import os
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -23,6 +24,20 @@ class ReportingTests(unittest.TestCase):
             cls.primary = o.run_period_ols_scenarios({**o.CONFIG,'include_interactions':False}, write_output=False)
             cls.extended = o.run_period_ols_scenarios({**o.CONFIG,'include_interactions':True}, write_output=False)
         cls.comparison = o.build_model_comparison(cls.primary, cls.extended)
+        # The public interaction file is now the compact supplement. Preserve
+        # validation of the historical full writer in a disposable workbook.
+        cls.full_workbook_directory = tempfile.TemporaryDirectory(prefix='grip_full_ols_check_')
+        cls.extended_workbook = str(Path(cls.full_workbook_directory.name)/'full_interactions.xlsx')
+        cls.primary_workbook = str(Path(cls.full_workbook_directory.name)/'primary.xlsx')
+        primary_arguments={**cls.primary['workbook_arguments'],'config':{**cls.primary['config_used'],'output_file':cls.primary_workbook,'annotation_source':'results_ols_scenarios.xlsx'}}
+        o.write_scenario_workbook(**primary_arguments)
+        arguments = {**cls.extended['workbook_arguments'], 'config': {**cls.extended['config_used'], 'output_file': cls.extended_workbook,
+                     'annotation_source': os.environ.get('GRIP_OLS_LEGACY_WORKBOOK','archive/results_ols_interactions_2026-10-08.xlsx')}}
+        o.write_scenario_workbook(**arguments,model_comparison=cls.comparison)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.full_workbook_directory.cleanup()
 
     def pairs(self):
         for scenario in o.SCENARIOS:
@@ -59,7 +74,7 @@ class ReportingTests(unittest.TestCase):
             self.assertAlmostEqual(current.rsquared,independent.rsquared,places=12)
 
     def test_saved_models_match_both_specifications(self):
-        for file,report in [('results_ols_scenarios.xlsx',self.primary),('results_ols_interactions.xlsx',self.extended)]:
+        for file,report in [('results_ols_scenarios.xlsx',self.primary),(self.extended_workbook,self.extended)]:
             saved = pd.read_excel(file,sheet_name='Coefficients_Long')
             cols=['scenario','model','raw_variable']
             expected=report['coefficients_long_df']
@@ -87,7 +102,9 @@ class ReportingTests(unittest.TestCase):
             np.testing.assert_allclose(pairs[field+'_old'],pairs[field+'_new'],rtol=1e-10,atol=1e-10)
 
     def test_working_and_technical_sheets_and_comparison(self):
-        for file,extended in [('results_ols_scenarios.xlsx',False),('results_ols_interactions.xlsx',True)]:
+        # Check formatter defaults on disposable outputs. The live primary may
+        # have researcher-adjusted panes and must not be reformatted by a test.
+        for file,extended in [(self.primary_workbook,False),(self.extended_workbook,True)]:
             with open(file,'rb') as handle:
                 workbook=load_workbook(handle,read_only=False,data_only=True)
             names=o.OUTPUT_SHEETS.copy()
@@ -98,7 +115,7 @@ class ReportingTests(unittest.TestCase):
                 self.assertEqual(workbook['Model_Comparison'].freeze_panes,'D2')
                 self.assertTrue(workbook['Model_Comparison'].auto_filter.ref)
             workbook.close()
-        saved=pd.read_excel('results_ols_interactions.xlsx',sheet_name='Model_Comparison')
+        saved=pd.read_excel(self.extended_workbook,sheet_name='Model_Comparison')
         self.assertEqual(len(saved),64)
         self.assertTrue(saved.identical_observations.all())
         np.testing.assert_allclose(saved.delta_R2,saved.R2_with-saved.R2_without,rtol=1e-10,atol=1e-12)
@@ -158,7 +175,7 @@ class ReportingTests(unittest.TestCase):
                         if index>=10 and cell.value is not None:result[name,row[0].value,row[1].value,index]=cell.value
             workbook.close()
             return result
-        self.assertEqual(notes(path),notes('results_ols_interactions.xlsx'))
+        self.assertEqual(notes(path),notes(self.extended_workbook))
 
     def test_source_data_and_other_outputs_unchanged(self):
         self.assertEqual(self.hashes,{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in self.protected})

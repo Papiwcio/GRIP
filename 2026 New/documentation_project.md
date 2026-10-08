@@ -21,7 +21,7 @@ Run commands from this directory:
 
 1. `python3 code_build_core.py` builds `data_core_2018-2024.parquet` and `.xlsx` from `data_panel_2018-2024.parquet`.
 2. `python3 code_build_period.py` builds `data_period_2018-2024.parquet` and `.xlsx` from the annual core dataset.
-3. `python3 code_ols_scenarios.py` writes additive `results_ols_scenarios.xlsx` and extended centred-interaction `results_ols_interactions.xlsx`, including a matched-model comparison in the latter. Both retain all 64 scenario/period/variant models. `python code_check_ols_reporting.py` verifies the split and reproducibility.
+3. `python3 code_ols_scenarios.py` writes additive `results_ols_scenarios.xlsx` (all 64 variants) and compact `results_ols_interactions.xlsx` (four sheets; separate export × size and profitability × manufacturing standardised specifications). `python code_ols_interactions.py` updates only the supplement. Raw interaction variants and the previous full layout remain available for verification/explicit legacy use; the original full report is retained in `archive/results_ols_interactions_2026-10-08.xlsx`. `python code_check_ols_interactions.py` checks compact scope, scaling, matched comparisons and covariance contrasts; `python code_check_ols_reporting.py` retains the earlier full-engine validation in a disposable workbook. See `documentation_ols_interactions.md`.
 4. `python3 code_quantile.py` writes `results_quantile.xlsx` with the shared OLS `winsor_std` model specification.
 5. `python3 code_diagnostics_trajectories.py` writes `results_diagnostics_trajectories.xlsx`.
 

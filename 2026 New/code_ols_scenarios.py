@@ -303,8 +303,8 @@ def validate_interaction_metadata(config: dict[str, Any]) -> None:
     owner_column = config["owner_column"]
 
     active_required_keys = {"variables", "display_name", "interpretation", "standardise", "include"}
-    allowed_keys = set(active_required_keys)
-    for name, interaction in INTERACTION_METADATA.items():
+    allowed_keys = set(active_required_keys) | {"scale_with"}
+    for name, interaction in config.get("interaction_metadata", INTERACTION_METADATA).items():
         if not isinstance(interaction, dict):
             raise ValueError(f"INTERACTION_METADATA[{name!r}] must be a dictionary.")
         unknown_keys = sorted(set(interaction).difference(allowed_keys))
@@ -327,6 +327,9 @@ def validate_interaction_metadata(config: dict[str, Any]) -> None:
         variables = interaction["variables"]
         if not isinstance(variables, list) or len(variables) != 2 or not all(isinstance(variable, str) for variable in variables):
             raise ValueError(f"INTERACTION_METADATA[{name!r}]['variables'] must contain exactly two variable-name strings.")
+        if interaction.get("scale_with") is not None:
+            if interaction["scale_with"] not in variables or interaction["standardise"]:
+                raise ValueError("scale_with must name a constituent main effect and disables independent product standardisation.")
 
         for variable in variables:
             if variable in categorical_controls:
@@ -350,8 +353,9 @@ def get_active_interactions(config: dict[str, Any] | None = None) -> list[dict[s
             "display_name": metadata["display_name"],
             "interpretation": metadata["interpretation"],
             "standardise": metadata["standardise"],
+            "scale_with": metadata.get("scale_with"),
         }
-        for name, metadata in INTERACTION_METADATA.items()
+        for name, metadata in (config.get("interaction_metadata", INTERACTION_METADATA) if config is not None else INTERACTION_METADATA).items()
         if metadata.get("include") is True
     ]
 
@@ -359,8 +363,13 @@ def get_active_interactions(config: dict[str, Any] | None = None) -> list[dict[s
 def normalise_base_regressors(config: dict[str, Any]) -> list[dict[str, Any]]:
     regressors = []
     for base_name in config["base_regressors"]:
-        metadata = REGRESSOR_METADATA.get(base_name, {})
-        allowed_keys = {"display_name", "interpretation", "standardise", "column_pattern"}
+        metadata = {**REGRESSOR_METADATA.get(base_name, {}), **config.get("regressor_metadata", {}).get(base_name, {})}
+        allowed_keys = {"display_name", "interpretation", "standardise", "column_pattern", "variable_type"}
+        kind = metadata.get("variable_type", "numeric")
+        if kind not in {"numeric", "dummy"}:
+            raise ValueError("Base-regressor metadata supports numeric or dummy variables only.")
+        if kind == "dummy" and metadata.get("standardise", DEFAULT_REGRESSOR_RULES["standardise"]):
+            raise ValueError("Dummy base regressors must retain 0/1 coding and standardise=False.")
         unknown_keys = sorted(set(metadata).difference(allowed_keys))
         if unknown_keys:
             raise ValueError(
@@ -375,6 +384,7 @@ def normalise_base_regressors(config: dict[str, Any]) -> list[dict[str, Any]]:
                 "display_name": metadata.get("display_name", base_name),
                 "interpretation": metadata.get("interpretation", "no interpretation provided"),
                 "standardise": metadata.get("standardise", DEFAULT_REGRESSOR_RULES["standardise"]),
+                "variable_type": metadata.get("variable_type", "numeric"),
             }
         )
     return regressors
@@ -961,7 +971,7 @@ def build_variable_registry(
                 display_name=regressor["display_name"],
                 interpretation=regressor["interpretation"],
                 standardise=regressor["standardise"],
-                variable_type="numeric",
+                variable_type=regressor.get("variable_type", "numeric"),
                 source=regressor["base_name"],
                 order=order,
                 period=period,
@@ -1121,6 +1131,28 @@ def build_design_matrix(
             x_model_numeric.loc[:, standardisable] = scaler.fit_transform(x_model_numeric[standardisable])
     else:
         excluded_from_standardisation = list(numeric_regressors)
+
+    # Opt-in constituent scaling for continuous × binary slope comparisons.
+    # Standardised profitability and its product then share the SAME full-sample
+    # profitability SD: beta_profit + beta_product is the manufacturing slope.
+    # Existing independently standardised products (export × size) are unchanged.
+    if standardised_model:
+        handled_products = set()
+        for period in config["periods"]:
+            for interaction in get_active_interactions(config):
+                product = build_interaction_column_name(interaction["name"], period)
+                scale_with = interaction.get("scale_with")
+                if not scale_with or product not in x_model_numeric or product in handled_products:
+                    continue
+                source = resolve_interaction_variable(config, scale_with, period)
+                if source not in get_standardisable_regressors(regressors, registry):
+                    raise ValueError("Constituent-scaled interaction requires a standardised continuous main effect.")
+                sd = float(x_raw_numeric[source].std(ddof=0))
+                divisor = sd if pd.notna(sd) and sd != 0 else 1.0
+                x_model_numeric[product] = x_model_numeric[product] / divisor
+                included_in_standardisation.append(product)
+                excluded_from_standardisation = [name for name in excluded_from_standardisation if name != product]
+                handled_products.add(product)
 
     x_raw = x_raw_numeric.copy()
     x_model = x_model_numeric.copy()
@@ -3588,12 +3620,17 @@ def build_model_comparison(primary: dict, extended: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def run_ols_reports(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
+def run_ols_reports(config: dict[str, Any] = CONFIG, interaction_layout: str = "compact") -> dict[str, Any]:
     """Fit both specifications before publishing either workbook; shared engine."""
+    if interaction_layout not in {"compact", "full"}:
+        raise ValueError("interaction_layout must be compact or full.")
     primary_config = {**config, "include_interactions": False, "analysis_name": "period_ols_scenarios",
                       "output_file": "results_ols_scenarios.xlsx"}
     extended_config = {**config, "include_interactions": True, "analysis_name": "period_ols_interactions",
                        "output_file": "results_ols_interactions.xlsx"}
+    if interaction_layout == "compact":
+        from code_ols_interactions import specification_config, run_interactions
+        extended_config = {**specification_config("export_size", config), "output_file": "results_ols_interactions.xlsx"}
     primary = run_period_ols_scenarios(primary_config, write_output=False)
     extended = run_period_ols_scenarios(extended_config, write_output=False)
     comparison = build_model_comparison(primary, extended)
@@ -3602,7 +3639,11 @@ def run_ols_reports(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
     extended_path = Path(extended_config["output_file"])
     if not extended_path.exists():
         extended["workbook_arguments"]["config"]["annotation_source"] = primary_config["output_file"]
-    extended["written_sheets"] = write_scenario_workbook(**extended["workbook_arguments"], model_comparison=comparison)
+    if interaction_layout == "full":
+        extended["written_sheets"] = write_scenario_workbook(**extended["workbook_arguments"], model_comparison=comparison)
+    else:
+        supplementary = run_interactions(config=config, export_report={"config": extended["config_used"], "models": build_models(extended["config_used"]), "scenarios": extended["scenario_results"]})
+        extended["written_sheets"] = list(supplementary["tables"])
     primary["written_sheets"] = write_scenario_workbook(**primary["workbook_arguments"])
     return {"primary": primary, "interactions": extended, "comparison": comparison}
 

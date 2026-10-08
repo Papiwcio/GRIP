@@ -1,5 +1,7 @@
 # OLS primary and interaction reports
 
+The primary report below is unchanged. The interaction report's **current** presentation is the four-sheet compact supplement documented in `documentation_ols_interactions.md`: separate export × size and profitability × manufacturing models, standardised variants only. The full interaction layout described below is retained as an explicit legacy capability (`run_ols_reports(interaction_layout='full')`), not the default active workbook. Use `python code_ols_interactions.py` to refresh the supplement without touching the primary report.
+
 ## Purpose
 
 `code_ols_scenarios.py` is the current master OLS regression pipeline for the 2026 period analysis.
@@ -11,7 +13,7 @@ It estimates scenario-based OLS models from `data_period_2018-2024.parquet` and 
 
 The first workbook contains the **primary additive specification with no interaction terms**. The second contains the **extended specification with the active terms in `INTERACTION_METADATA`**, using the agreed estimation-sample mean-centring. Both contain the full 64-model grid and use the same underlying regression engine, sample definitions, controls, covariance estimator and outcome/predictor preprocessing.
 
-Run `python code_ols_scenarios.py` to produce both reports. `run_ols_reports()` fits both specifications, verifies identical ordered firm IDs and transformed outcomes for every pair, then writes both. A mismatched pair raises an error before either report is written. No additional data-quality exclusions or source changes are introduced.
+Run `python code_ols_scenarios.py` to produce primary OLS and the compact supplement. `run_ols_reports()` retains the legacy paired A/primary calculations, verifies identical ordered firm IDs and transformed outcomes, and now publishes the compact supplement by default; the new B comparison is separately refitted with Manufacturing retained. A mismatched pair raises an error. No additional data-quality exclusions or source changes are introduced. Supplementary-only updates run `code_ols_interactions.py` and do not rewrite primary OLS.
 
 The lower-level `run_period_ols_scenarios()` defaults to the primary additive report; explicitly set `include_interactions=True` and a separate output path when requesting the extended specification alone. Generic engine helpers keep their previous active-metadata default for imports by quantile, severe and trajectory diagnostics. Shared `code_config.py` is unchanged; those analyses are not rerun or modified by the report split.
 
