@@ -10,6 +10,8 @@ The workbook is rebuilt directly and completely by `code_diagnostics_trajectorie
 
 Shared scenario definitions, period definitions, model variables, interaction rules, winsorisation settings, and sample masks are sourced from `code_config.py`. After writing, `code_diagnostics_trajectories.py` reopens the workbook and fails if the sheet order differs or any required sheet is empty.
 
+From 8 October 2026, interaction descriptives and correlations use complete-case mean-centred products from the same scenario-period samples as OLS. Binary metadata keeps 0/1 components. Ordinary regressors, outcomes and trajectory definitions are unchanged. Before/after VIF and correlations plus exact means/SDs are reported separately in `results_interaction_centring.xlsx`.
+
 The shared `code_config.MANUAL_EXCLUSIONS` is applied to both the OLS-based diagnostics and the trajectory/profile/firm-level outputs before scenario selection and transformations. The README lists the six specified firms with verified NIPs, reason codes/descriptions, matched counts and removed/already-absent status. Canonical performance-band thresholds remain those saved in the period dataset; exclusions do not rebuild or redefine those benchmarks. See `documentation_manual_exclusions.md` for the current sample audit.
 
 Input:

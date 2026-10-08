@@ -614,6 +614,7 @@ def build_readme(config: dict[str, Any]) -> pd.DataFrame:
         ("Quantiles", ", ".join(str(q) for q in config["quantiles"])),
         ("Preferred model variant", config["preferred_model_variant"]),
         ("Shared model controls", "code_config.PERIOD_MODEL_SETTINGS; design matrices and metadata use the same builders as OLS scenarios."),
+        ("Interaction centring", "Continuous inputs are centred using this scenario-period's complete-case estimation sample, then multiplied; binary metadata retains 0/1. Products follow standardisation metadata. Ordinary regressors are unchanged; P1/FULL have separate means with the same starting columns. See results_interaction_centring.xlsx for OLS lineage and equivalence diagnostics."),
         ("Base regressors", ", ".join(config["base_regressors"])),
         ("Ownership", f"include_owner={config['include_owner']}; column={config['owner_column']}"),
         ("Winsorisation", f"Dependent variable only; lower={config['winsor_lower']}; upper={config['winsor_upper']} within each scenario-period estimation sample."),

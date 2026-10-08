@@ -110,6 +110,7 @@ def period_dependent_metadata(growth_mode: str, period: str) -> dict[str, str]:
 
 
 PERIOD_MODEL_SETTINGS = {
+    "centre_interaction_inputs": True,
     "growth_mode": "nominal",
     "periods": [*PERIODS, "FULL"],
     "base_regressors": [

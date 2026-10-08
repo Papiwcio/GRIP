@@ -209,6 +209,8 @@ def uses_shared_sample_filter(config: dict[str, Any]) -> bool:
 
 
 def validate_user_config(config: dict[str, Any]) -> None:
+    if not isinstance(config.get('centre_interaction_inputs', True), bool):
+        raise ValueError("centre_interaction_inputs must be True or False.")
     required_keys = {
         "analysis_name",
         "input_file",
@@ -687,6 +689,11 @@ def add_interaction_columns(
     config: dict[str, Any],
     models: dict[str, dict[str, Any]],
 ) -> pd.DataFrame:
+    """Prepare product availability; final products are rebuilt after complete cases.
+
+    No centring reference is inferred from the full input or a scenario frame.
+    Shared P1/FULL column names here encode source lineage, not shared means.
+    """
     output = df.copy()
     active_interactions = get_active_interactions()
     if not active_interactions:
@@ -707,6 +714,51 @@ def add_interaction_columns(
             right = pd.to_numeric(output[source_columns[1]], errors="coerce")
             output[interaction_column] = left * right
             constructed_columns.add(interaction_column)
+    return output
+
+
+def centre_interaction_columns(
+    estimation_df: pd.DataFrame,
+    regressors: list[str],
+    registry: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+    offsets: dict[str, float] | None = None,
+) -> pd.DataFrame:
+    """Construct products on actual complete cases; ordinary columns stay raw.
+
+    Fixed offsets are only for prediction/counterfactual evaluation using the
+    original fitted model's reference means. Binary status comes from metadata.
+    """
+    output = estimation_df.copy()
+    provenance = {}
+    handled = set()
+    for period in config['periods']:
+        for interaction in get_active_interactions():
+            product = build_interaction_column_name(interaction['name'], period)
+            if product not in regressors or product in handled:
+                continue
+            handled.add(product)
+            sources = [resolve_interaction_variable(config, name, period) for name in interaction['variables']]
+            missing_main_effects = [name for name in sources if name not in regressors]
+            if missing_main_effects:
+                raise ValueError(f'Interaction {product} lacks constituent main effects: {missing_main_effects}. Statistical equivalence cannot be assumed.')
+            components, records = [], []
+            for source in sources:
+                kind = registry[source]['variable_type']
+                if kind not in {'numeric', 'lag', 'dummy'}:
+                    raise ValueError(f'Unsupported interaction input type for {source}: {kind}')
+                raw = pd.to_numeric(output[source], errors='coerce').astype(float)
+                offset = float(raw.mean()) if config.get('centre_interaction_inputs', True) and kind != 'dummy' else 0.0
+                if offsets is not None:
+                    offset = offsets[source]
+                components.append(raw - offset)
+                records.append({'column': source, 'type': kind, 'mean': float(raw.mean()),
+                                'sd_ddof0': float(raw.std(ddof=0)), 'offset': offset})
+            output[product] = components[0] * components[1]
+            provenance[product] = {'N': len(output), 'inputs': records,
+                                   'product_mean': float(output[product].mean()),
+                                   'product_sd_ddof0': float(output[product].std(ddof=0))}
+    output.attrs['interaction_centring'] = provenance
     return output
 
 
@@ -1047,6 +1099,7 @@ def build_design_matrix(
     standardised_model: bool,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str]]:
     categorical_columns = get_categorical_columns(config)
+    estimation_df = centre_interaction_columns(estimation_df, regressors, registry, config)
     numeric_regressors = [column for column in regressors if column not in categorical_columns]
     x_raw_numeric = estimation_df[numeric_regressors].apply(pd.to_numeric, errors="coerce").astype(float)
     x_model_numeric = x_raw_numeric.copy()
@@ -1132,7 +1185,7 @@ def run_model_variant(
     numeric_regressors = [column for column in regressors if column not in get_categorical_columns(config)]
     working[dependent] = pd.to_numeric(working[dependent], errors="coerce")
     working[numeric_regressors] = working[numeric_regressors].apply(pd.to_numeric, errors="coerce")
-    estimation_df = working.dropna().copy()
+    estimation_df = get_estimation_sample(filtered_df, config, model_spec)
     rows_dropped = len(filtered_df) - len(estimation_df)
     if estimation_df.empty:
         raise ValueError(
@@ -1196,6 +1249,7 @@ def run_model_variant(
         "standardised_variables": standardised_variables,
         "non_standardised_variables": non_standardised_variables,
         "result": fitted,
+        "interaction_centring": estimation_df.attrs.get('interaction_centring', {}),
     }
 
 
@@ -2297,6 +2351,8 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Model periods", ", ".join(config["periods"])),
         ("Scenario definitions", scenario_text),
         ("Model variants", variant_text),
+        ("Interaction centring", "Continuous interaction inputs are mean-centred on each scenario-period complete-case estimation sample before multiplication. Metadata-defined binary inputs stay 0/1. P1 and FULL retain source columns but use their own sample means. Products subsequently follow their standardisation metadata; ordinary regressors retain existing treatment."),
+        ("Interaction interpretation", "Centring reduces avoidable main-effect/product collinearity. Standardised product coefficients can change because the product SD changes, while fitted values, R² and interaction t/p tests stay equivalent. Use conditional/marginal effects. Actual means/SDs and before/after checks: results_interaction_centring.xlsx."),
         ("Dependent variable logic", "The source growth variables above are used in baseline models, clipped at the configured percentiles in winsor variants, and standardised within the estimation sample when the variant and standardise_dependent settings request it. Logs require strictly positive endpoint sales; otherwise growth is missing."),
         ("2018 role", "2018 is used only to calculate P1 lag growth; it is not an analytical outcome period."),
         ("Lag growth logic", "P1 uses 2018-2019 lag growth; P2 and P3 retain their prior-period lags; FULL has no lag growth."),
@@ -2458,7 +2514,9 @@ def get_estimation_sample(
     numeric_regressors = [column for column in regressors if column not in get_categorical_columns(config)]
     working[dependent] = pd.to_numeric(working[dependent], errors="coerce")
     working[numeric_regressors] = working[numeric_regressors].apply(pd.to_numeric, errors="coerce")
-    return working.dropna().copy()
+    complete = working.dropna().copy()
+    registry = build_variable_registry(config, build_models(config))
+    return centre_interaction_columns(complete, model_spec['regressors'], registry, config)
 
 
 def numeric_variables_for_descriptives(model_spec: dict[str, Any], variable_registry: dict[str, dict[str, Any]]) -> list[str]:
@@ -3162,10 +3220,35 @@ def write_scenario_workbook(
         raise ValueError(f"Internal workbook sheet order changed. Expected={OUTPUT_SHEETS}, actual={actual_sheet_names}")
 
     output_path = Path(config["output_file"])
+    # Reader annotations in trailing comparison columns are outside the model
+    # output schema. Preserve them by scenario/row label when rebuilding.
+    annotations = {}
+    if output_path.exists():
+        import openpyxl
+        existing = openpyxl.load_workbook(output_path, read_only=True, data_only=False)
+        for sheet_name in ['Compare_Main', 'Compare_Raw']:
+            if sheet_name not in existing:
+                continue
+            width = len(workbook_tables[sheet_name].columns)
+            for row in existing[sheet_name].iter_rows(min_row=2):
+                if len(row) > width:
+                    values = {i: cell.value for i, cell in enumerate(row) if i >= width and cell.value is not None}
+                    if values:
+                        annotations[sheet_name, row[0].value, row[1].value] = values
+        existing.close()
     with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
         for sheet_name, table in workbook_tables.items():
             table.to_excel(writer, sheet_name=sheet_name, index=False)
         format_workbook(writer, workbook_tables)
+        note_format = writer.book.add_format({'text_wrap': True, 'valign': 'top'})
+        for sheet_name in ['Compare_Main', 'Compare_Raw']:
+            table = workbook_tables[sheet_name]
+            for position, row in enumerate(table.itertuples(index=False), start=1):
+                for column, value in annotations.get((sheet_name, row.scenario, row.display_name), {}).items():
+                    writer.sheets[sheet_name].write(position, column, value, note_format)
+                    writer.sheets[sheet_name].set_column(column, column, 60, note_format)
+                    lines = len(textwrap.wrap(str(value), width=56)) or 1
+                    writer.sheets[sheet_name].set_row(position, max(30, 15 * lines + 6))
     return actual_sheet_names
 
 

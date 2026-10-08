@@ -167,10 +167,8 @@ def independent_data_checks(result):
                 raw_plus[variable] += shift
                 raw_minus[variable] -= shift
                 for raw, design in [(raw_plus, plus), (raw_minus, minus)]:
-                    for interaction in ols.get_active_interactions():
-                        names = [ols.resolve_interaction_variable(result['shared'], v, 'P1') for v in interaction['variables']]
-                        product = ols.build_interaction_column_name(interaction['name'], 'P1')
-                        raw[product] = raw[names[0]] * raw[names[1]]
+                    offsets = {item['column']: item['offset'] for provenance in prepared.estimation.attrs['interaction_centring'].values() for item in provenance['inputs']}
+                    raw = ols.centre_interaction_columns(raw, list(prepared.scales), prepared.registry, result['shared'], offsets=offsets)
                     for name, scale in prepared.scales.items():
                         design[:, columns.index(name)] = (raw[name] - scale['mean']) / scale['sd'] if scale['standardised'] else raw[name]
                 divisor = 2 * epsilon

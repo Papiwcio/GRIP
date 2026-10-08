@@ -20,10 +20,12 @@ The current specification is:
 - periods P1 (2019–2020), P2 (2020–2022), P3 (2022–2024), and FULL (2019–2024);
 - numeric starting covariates: `ln_sales`, `profit_margin`, `export_ratio`, `asset_turnover`, `capital_ratio`, and `sales_per_employee`;
 - `owner_num` as the foreign-ownership dummy;
-- `export_ratio × ln_sales`, calculated from the corresponding starting covariates before standardisation;
+- `export_ratio × ln_sales`, calculated from the corresponding complete-case mean-centred starting covariates before standardising the resulting product;
 - `sector_en` categorical controls, with `production` omitted as the reference category.
 
 FULL uses P1 starting covariates and the same `export_ratio_x_ln_sales_start_P1` interaction as P1. Other periods use their own starting covariates and interactions.
+
+P1 and FULL retain source names but calculate their centring means separately on their actual scenario-period complete cases. Binary components are identified by metadata and remain 0/1. Other continuous regressors keep their established standardisation. The shared centred-product builder is idempotent: it always rebuilds from original input columns, avoiding double-centring. `documentation_interaction_centring.md` records OLS equivalence and the finite-tolerance QuantReg caveat.
 
 ## Lagged growth
 

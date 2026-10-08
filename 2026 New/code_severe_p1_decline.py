@@ -210,7 +210,8 @@ def marginal_effects(prepared: Prepared, fitted: LogisticFit, shared) -> pd.Data
             for position, source in enumerate(sources):
                 if source == column:
                     other = sources[1 - position]
-                    derivative[:, columns.index(product_name)] += prepared.estimation[other].to_numpy(dtype=float) * delta_raw / divisor
+                    reference = prepared.estimation.attrs['interaction_centring'][product_name]['inputs'][1-position]['offset']
+                    derivative[:, columns.index(product_name)] += (prepared.estimation[other].to_numpy(dtype=float) - reference) * delta_raw / divisor
         statistics, _ = continuous_ame(x, fitted.beta, fitted.covariance, derivative)
         records.append({"sample": prepared.sample, "variable": column,
                         "label": prepared.registry[column]["display_name"],
@@ -228,7 +229,8 @@ def marginal_effects(prepared: Prepared, fitted: LogisticFit, shared) -> pd.Data
                 other = sources[1 - sources.index(column)]
                 scale = prepared.scales[product]
                 x0[:, columns.index(product)] = (0 - scale["mean"]) / scale["sd"] if scale["standardised"] else 0
-                raw1 = prepared.estimation[other].to_numpy(dtype=float)
+                input_record = next(r for r in prepared.estimation.attrs['interaction_centring'][product]['inputs'] if r['column']==other)
+                raw1 = prepared.estimation[other].to_numpy(dtype=float) - input_record['offset']
                 x1[:, columns.index(product)] = (raw1 - scale["mean"]) / scale["sd"] if scale["standardised"] else raw1
         statistics, _ = discrete_ame(x0, x1, fitted.beta, fitted.covariance)
         records.append({"sample": prepared.sample, "variable": column,
@@ -424,6 +426,7 @@ def readme(config, shared, status):
         ("P3 outcome", period_dependent_metadata(mode, "P3")["label"] + "; " + period_dependent_metadata(mode, "P3")["formula"]),
         ("Growth preprocessing", f"Use principal OLS winsor_std: clip only the outcome at {shared['winsor_lower']:.0%}/{shared['winsor_upper']:.0%}, then standardise it and metadata-designated continuous predictors within the same period estimation sample (ddof=0). Group indicators remain 0/1."),
         ("Growth controls", "Same period starting covariates, ownership, export_ratio × ln_sales, sector controls and lag growth as main OLS. P2's group coefficient is conditional on P1 growth through its lag; it is an incremental threshold association."),
+        ("Shared interaction centring", "Metadata-defined continuous inputs are centred on the model's complete-case sample before multiplication; binary inputs remain 0/1. Products follow standardisation metadata once. Logit AMEs use the centred product rule with fixed fitting-sample means. The separate profitability_z × BottomP1 term already has a centred continuous input and retains established units."),
         ("Selected interaction", "Only standardised profit_margin × BottomP1, estimated separately for P2 and P3. Do not restandardise this product. The ordinary-firm slope is β1, the severe-group slope β1+β3, and the slope difference β3. The group main effect is evaluated at mean profitability."),
         ("Interaction audit", "Both profitability main effect and interaction use exactly the same z-score; combined inference uses Var(β1)+Var(β3)+2Cov(β1,β3). No scaling mismatch was found."),
         ("Influence warning", "The manual-exclusion audit at the end of this README records earlier influential firms and their comparability reasons. Recomputed VIF, subgroup-variation and influence diagnostics describe the current samples. Remaining influential observations can still affect inference; these exclusions alone do not establish robustness."),

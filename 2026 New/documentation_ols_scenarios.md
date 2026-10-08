@@ -119,8 +119,12 @@ Interaction:
 
 - `export_ratio x ln_sales`
 - generated as `export_ratio_x_ln_sales_start_P1`, `export_ratio_x_ln_sales_start_P2`, and `export_ratio_x_ln_sales_start_P3`
-- `P1` and `FULL` both use the same raw interaction column: `export_ratio_x_ln_sales_start_P1`
-- for `FULL`, the interaction is calculated from `export_ratio_start_P1 * ln_sales_start_P1`
+- P1 and FULL retain the same source-column name `export_ratio_x_ln_sales_start_P1`, and both use P1 starting covariates. Their final products are rebuilt separately using their own complete-case estimation samples.
+- With `centre_interaction_inputs=True`, each continuous input subtracts its actual estimation-sample mean before multiplication. Metadata-defined binary inputs stay 0/1; binary × binary inputs are not centred. Observed 0/1 values do not override a continuous metadata type.
+- The resulting product follows the existing `standardise` metadata: z-score using ddof=0 in standardised variants, centred raw product in raw variants. Ordinary regressors retain their original treatment; no input is double-standardised.
+- `add_interaction_columns()` initially prepares product availability for missing-value checks. `get_estimation_sample()` and `build_design_matrix()` rebuild the final product after complete cases; preliminary full-data products are never used as fitted regressors.
+- Constituent main effects must accompany every active interaction; otherwise the code reports a specification error. Centring changes the interpretation of main effects to the other continuous input's mean, while preserving raw interaction coefficients, fitted values, residuals, R² and interaction t/p tests.
+- Actual means, population SDs, product moments, correlations, all-predictor VIF and 64 before/after comparisons are recorded in `results_interaction_centring.xlsx`. Reproduce with `python3 code_check_interaction_centring.py`; see `documentation_interaction_centring.md`.
 
 Lag growth:
 

@@ -59,6 +59,8 @@ Method references: [official logistf documentation](https://search.r-project.org
 
 Continuous AMEs average the total probability derivative for one SD increase in a standardised predictor. Existing interactions are differentiated with the product rule. In particular, the export-ratio and size AMEs include their shared interaction; they do not incorrectly hold that interaction fixed.
 
+Since 8 October 2026, shared interaction inputs are centred on the actual model complete-case sample before multiplication. Continuous AME product derivatives use the other component minus its fitted centring mean; counterfactual products retain those fitting-sample means. Binary inputs stay 0/1. The separate `profitability_z × BottomP1` already uses centred continuous profitability and remains unstandardised as a product. All original samples, covariance policies and profitability-slope contrast units are retained. See `documentation_interaction_centring.md` and `results_interaction_centring.xlsx` for reference means and validation.
+
 For a design derivative `D`, `AME = mean[p(1−p) Dβ]`. Its delta-method gradient is `mean[p(1−p)D + p(1−p)(1−2p)(Dβ)X]`. Variance is `g'Cov(β)g`; 95% intervals and z tests use the normal approximation. This is a local average derivative, not a finite one-SD jump in probability.
 
 Ownership uses average counterfactual probability differences from 0 to 1. Sector effects contrast each sector with production while setting the other sector dummies to zero. Binary changes regenerate any existing product involving that variable. Discrete-effect gradients are the averaged differences of `p(1−p)X` between the two counterfactual matrices. AMEs are reported in probability units and additionally in percentage points.
