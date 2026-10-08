@@ -406,7 +406,6 @@ def readme(config, shared, status):
     rows = [
         ("Purpose", "Supplementary P1 vulnerability → P2 recovery → P3 subsequent development analysis. Associations are descriptive, not causal."),
         ("Input file", config["input_file"]), ("Output file", config["output_file"]),
-        *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
         ("Samples", "RANK2019 (primary) and RANK2019_MANUFACTURING (secondary). Internal shared masks are Rank2019 and Rank2019_Manufacturing. Manufacturing is nested within ranking; these are not independent replications."),
         ("Price basis", f"{mode.title()} sales growth. All model outcomes and lags follow code_config.PERIOD_MODEL_SETTINGS."),
         ("Primary definition", f"BottomP1_20 = 1 only when {ols.get_growth_prefix(shared)}growth_P1 < -0.20; equality is outside the severe group. Membership is fixed by P1."),
@@ -427,7 +426,7 @@ def readme(config, shared, status):
         ("Growth controls", "Same period starting covariates, ownership, export_ratio × ln_sales, sector controls and lag growth as main OLS. P2's group coefficient is conditional on P1 growth through its lag; it is an incremental threshold association."),
         ("Selected interaction", "Only standardised profit_margin × BottomP1, estimated separately for P2 and P3. Do not restandardise this product. The ordinary-firm slope is β1, the severe-group slope β1+β3, and the slope difference β3. The group main effect is evaluated at mean profitability."),
         ("Interaction audit", "Both profitability main effect and interaction use exactly the same z-score; combined inference uses Var(β1)+Var(β3)+2Cov(β1,β3). No scaling mismatch was found."),
-        ("Influence warning", "The manual-exclusion audit above records earlier influential firms and their comparability reasons. Recomputed VIF, subgroup-variation and influence diagnostics describe the current samples. Remaining influential observations can still affect inference; these exclusions alone do not establish robustness."),
+        ("Influence warning", "The manual-exclusion audit at the end of this README records earlier influential firms and their comparability reasons. Recomputed VIF, subgroup-variation and influence diagnostics describe the current samples. Remaining influential observations can still affect inference; these exclusions alone do not establish robustness."),
         ("Raw-growth mean warning", "Descriptive growth is raw and can be affected by extreme observations. Compare means with the appended medians, 5th/95th percentiles, maxima and mean-without-largest diagnostics."),
         ("P2 lag sensitivity", "An additional -20% diagnostic removes the continuous P1-growth lag on exactly the same sample and outcome scaling. It does not replace the primary model. Both versions remain conditional associations, not causal recovery effects."),
         ("Estimator comparison", "Ordinary MLE works without separation for Rank2019 at all thresholds. Firth was deliberately used in both samples for consistency and is retained. The principal ranking MLE comparison is diagnostic only; manufacturing requires separation handling."),
@@ -438,6 +437,7 @@ def readme(config, shared, status):
         ("Model status", status),
         ("Method source", METHOD_SOURCE), ("Penalised LR reference", LR_SOURCE),
         ("Reproduce", "python3 code_severe_p1_decline.py; shared settings remain in code_config.py. Canonical datasets and other workbooks are not modified."),
+        *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
     ]
     return pd.DataFrame(rows, columns=["item", "description"])
 

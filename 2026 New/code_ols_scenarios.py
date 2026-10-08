@@ -2287,7 +2287,6 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Input file", config["input_file"]),
         ("Output file", config["output_file"]),
         ("Growth mode", config["growth_mode"]),
-        *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
         ("Dependent variable", f"{config['growth_mode'].title()} annualised log sales growth; measured in log points per year, rather than a log sales level or CAGR."),
         ("Sales basis", period_dependent_metadata(config["growth_mode"], "FULL")["sales_basis"]),
         *[
@@ -2307,6 +2306,7 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Standardisation", f"standardised_models={config['standardised_models']}; standardise_dependent={config['standardise_dependent']}."),
         ("Significance stars", "*** p<0.01; ** p<0.05; * p<0.10."),
         ("Workbook structure", "Working tabs come first. Tabs after AUDIT_AND_TECHNICAL_TABS are technical diagnostics and reproducibility audit trails."),
+        *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
     ]
     return pd.DataFrame(rows, columns=["item", "description"])
 

@@ -30,6 +30,8 @@ All exclusion reasons reflect the user's stated comparability/eligibility criter
 
 The same names, NIPs, reason codes/descriptions, matched firm/row counts and statuses are printed at runtime and listed in each results workbook's existing README. A firm already absent upstream is not counted as newly removed. Manual removals are distinguished from subsequent missing-value exclusions.
 
+As requested on 8 October 2026, the manual-exclusion block appears at the end of every results README as supplementary information. Analysis purpose, outcomes, specification and interpretation appear first. This presentation change does not alter exclusions, estimation samples or numerical results.
+
 ## Data scope
 
 The exclusion policy is analytical. Canonical panel/core/period files are retained; all five current `data_*` files were hash-verified unchanged from the start of this task. A pre-existing local edit to `data_core_2018-2024.xlsx` was preserved and excluded from this task's Git commit. Archive results were untouched.

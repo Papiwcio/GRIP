@@ -603,7 +603,6 @@ def build_readme(config: dict[str, Any]) -> pd.DataFrame:
         ("Input file", config["input_file"]),
         ("Output file", config["output_file"]),
         ("Growth mode", config["growth_mode"]),
-        *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
         ("Dependent variable", f"{config['growth_mode'].title()} annualised log sales growth; measured in log points per year, rather than a log sales level or CAGR."),
         ("Sales basis", period_dependent_metadata(config["growth_mode"], "FULL")["sales_basis"]),
         *[
@@ -656,6 +655,7 @@ def build_readme(config: dict[str, Any]) -> pd.DataFrame:
             "Quantile pattern classification is descriptive only. It is based on coefficient direction and relative size across Q10, Q50 and Q90. It is not a formal statistical test.",
         ),
     ]
+    rows.extend(manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])))
     return pd.DataFrame(rows, columns=["item", "description"])
 
 
