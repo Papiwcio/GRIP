@@ -1,4 +1,14 @@
 # Dataset: data_core_2018-2024
+
+## Excel analysis formatting
+
+The first worksheet retains its existing name (`Sheet1`) and all 17,731 firm-year rows / 59 canonical columns. It is formatted like the Period data sheet: native Excel Table `CoreData` with filters and blue banded rows, dark-blue wrapped headers with white text, Arial 10, fitted descriptor widths/heights, hidden gridlines and 90% zoom. The header and the three Core identification columns (`nip`, `year`, `company`) are frozen at `D2`.
+
+Ratios and simple year-on-year growth display as percentages with two decimal places. Logs, log growth, asset turnover, equity multipliers and CPI display as decimal values with four places. Original financial amounts, real sales, average FTE employment and per-employee measures use thousands separators and two decimal places; fractional FTEs remain visible. Ranks, years, codes and flags display as integers; text NIPs stay text. These are display formats only; no rounding, clipping, conversion, imputation or new financial variables are stored.
+
+`code_build_core.write_outputs()` automatically applies the formatting to future exports. For an existing workbook, the builder's `format_excel_output(Path('data_core_2018-2024.xlsx'))` applies only presentation changes, preserving stored cell values, sheet name, existing filter conditions and other worksheets. This avoids overwriting researcher Excel edits during a formatting-only request. A normal data rebuild continues to use the builder's authoritative input and does not import Excel edits into Parquet.
+
+The formatting-only refresh on 8 October 2026 preserved every stored cell value across all 17,731 rows and 59 columns, including one pre-existing `sj` difference from canonical Parquet. Original numeric XML tokens are retained to avoid floating-point reserialization changes. That existing difference was neither corrected nor propagated to canonical data. No Parquet, Period workbook or regression/audit output is written by the formatter. During validation the two OLS workbooks were independently updated outside this formatting operation and left untouched; the other 17 protected dataset/workbook hashes remained unchanged. Repeat formatting was also checked on a disposable workbook for retained native filter conditions, text identifiers and an extra reader-notes sheet.
 Version: v1.1
 Date: 2026-06-27
 Changes:

@@ -416,6 +416,134 @@ def validate_output(df: pd.DataFrame) -> None:
 def write_outputs(df: pd.DataFrame, parquet_path: Path, xlsx_path: Path) -> None:
     df.to_parquet(parquet_path, index=False)
     df.to_excel(xlsx_path, index=False, engine="xlsxwriter")
+    format_excel_output(xlsx_path)
+
+
+def format_excel_output(xlsx_path: Path = OUTPUT_XLSX_PATH) -> None:
+    """Apply Period-style analysis formatting without changing existing cells.
+
+    Callable separately for formatting-only refreshes. A full build still takes
+    its data exclusively from the canonical builder, never from Excel edits.
+    The large Core workbook uses a bounded native styling pass because the
+    artifact-tool full-size authoring path exceeded its memory budget previously.
+    """
+    from copy import deepcopy
+    from math import ceil
+    from openpyxl import load_workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
+    from openpyxl.worksheet.filters import AutoFilter
+    from openpyxl.worksheet.views import Selection
+    from openpyxl.utils import get_column_letter
+    from zipfile import ZipFile
+    import xml.etree.ElementTree as ET
+    import re
+    import io
+
+    # Styling libraries may reserialize a float with fewer significant digits.
+    # Retain the original numeric XML tokens so a format-only save cannot alter
+    # a number by even one floating-point unit. Strings are preserved by the
+    # workbook loader; no numeric/formula calculation is performed here.
+    with ZipFile(xlsx_path) as source_archive:
+        namespaces = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        original_sheet = ET.fromstring(source_archive.read("xl/workbook.xml")).find("s:sheets/s:sheet", namespaces)
+        relation_id = original_sheet.attrib["{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"]
+        relationships = ET.fromstring(source_archive.read("xl/_rels/workbook.xml.rels"))
+        target = next(r.attrib["Target"] for r in relationships if r.attrib["Id"] == relation_id)
+        source_part = target.lstrip("/") if target.startswith("/") else "xl/" + target
+        original_numbers = {}
+        tag_c = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"
+        tag_v = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v"
+        for _, element in ET.iterparse(io.BytesIO(source_archive.read(source_part)), events=("end",)):
+            if element.tag == tag_c:
+                value = element.find(tag_v)
+                if element.get("t", "n") in {"n", "b"} and value is not None and value.text is not None:
+                    original_numbers[element.attrib["r"]] = value.text
+                element.clear()
+
+    workbook = load_workbook(xlsx_path)
+    worksheet = workbook.worksheets[0]
+    columns = [cell.value for cell in worksheet[1]]
+    if columns != CORE_COLUMNS:
+        workbook.close()
+        raise ValueError("Core Excel schema differs from canonical columns; formatting cancelled.")
+    header_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    body_font = Font(name="Arial", size=10)
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    header_border = Border(right=Side(style="thin", color="FFFFFF"))
+    wrap_columns = {"company", "pkd_description", "sector", "sector_en", "legal_form"}
+    integer_columns = set(INTEGER_COLUMNS) | {"manufacturing", "owner_num", "has_sales", "has_assets", "has_employment"}
+    percentages = {"profit_margin", "operating_margin", "export_ratio", "capital_ratio", "roa", "roe", "depreciation_ratio", "wage_intensity", "sales_growth_yoy", "sales_real_growth_yoy"}
+    monetary = set(ANNUAL_COLUMNS) - {"employment"}
+    formats, alignments, widths = {}, {}, {}
+    for index, name in enumerate(columns, 1):
+        is_text = name in STRING_COLUMNS or name == "owner"
+        number_format = "@" if is_text else "0" if name in integer_columns else "0.00%" if name in percentages else "#,##0.00" if name in monetary or name in {"employment", "sales_real", "sales_per_employee", "assets_per_employee"} else "0.0000"
+        width = 15 if name == "nip" else 44 if name == "company" else 52 if name == "pkd_description" else 28 if name in wrap_columns else min(max(len(name) + 2, 16), 26) if not is_text else min(max(len(name) + 2, 18), 35)
+        worksheet.column_dimensions[get_column_letter(index)].width = width
+        formats[index], widths[name] = number_format, width
+        alignments[index] = Alignment(horizontal="left" if is_text else "right", vertical="center", wrap_text=name in wrap_columns)
+        cell = worksheet.cell(1, index)
+        cell.font, cell.fill, cell.alignment, cell.border = header_font, header_fill, header_alignment, header_border
+    worksheet.row_dimensions[1].height = 42
+    for row in worksheet.iter_rows(min_row=2):
+        lines = 1
+        for index, cell in enumerate(row, 1):
+            cell.font, cell.alignment, cell.number_format = body_font, alignments[index], formats[index]
+            name = columns[index - 1]
+            if name in wrap_columns and cell.value is not None:
+                lines = max(lines, sum(max(1, ceil(len(part) / (widths[name] - 3))) for part in str(cell.value).split("\n")))
+        worksheet.row_dimensions[row[0].row].height = 15 * lines
+    worksheet.sheet_properties.tabColor = "5B9BD5"
+    worksheet.sheet_view.showGridLines = False
+    worksheet.sheet_view.zoomScale = 90
+    # Core starts with nip/year/company, rather than Period's nip/company.
+    worksheet.freeze_panes = "D2"
+    worksheet.sheet_view.topLeftCell = "A1"
+    worksheet.sheet_view.selection = [
+        Selection(pane="topRight", activeCell="D1", sqref="D1"),
+        Selection(pane="bottomLeft", activeCell="A2", sqref="A2"),
+        Selection(pane="bottomRight", activeCell="D2", sqref="D2"),
+    ]
+    reference = f"A1:{get_column_letter(len(columns))}{worksheet.max_row}"
+    existing = worksheet.tables.get("CoreData")
+    if existing is None:
+        if worksheet.tables:
+            workbook.close()
+            raise ValueError("Unexpected existing Core Excel table; formatting cancelled to preserve its structure.")
+        table = Table(displayName="CoreData", ref=reference)
+        table.tableColumns = [TableColumn(id=i, name=name) for i, name in enumerate(columns, 1)]
+        worksheet.add_table(table)
+    else:
+        table = existing
+        table.ref = reference
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+    # Transfer any existing worksheet filter conditions into the native table.
+    prior_filter = worksheet.auto_filter if worksheet.auto_filter.ref else table.autoFilter
+    table.autoFilter = AutoFilter(ref=reference,
+                                 filterColumn=deepcopy(prior_filter.filterColumn) if prior_filter is not None else [],
+                                 sortState=deepcopy(prior_filter.sortState) if prior_filter is not None else None)
+    worksheet.auto_filter.ref = None
+    temporary = xlsx_path.with_name(xlsx_path.stem + ".formatting.xlsx")
+    workbook.save(temporary)
+    workbook.close()
+    precise_temporary = xlsx_path.with_name(xlsx_path.stem + ".exact-formatting.xlsx")
+    with ZipFile(temporary) as formatted_archive, ZipFile(precise_temporary, "w") as precise_archive:
+        for entry in formatted_archive.infolist():
+            content = formatted_archive.read(entry.filename)
+            if entry.filename == "xl/worksheets/sheet1.xml":
+                xml = content.decode("utf-8")
+                def preserve_number(match):
+                    cell = match.group(0)
+                    coordinate = re.search(r'\br="([^"]+)"', cell)
+                    raw = original_numbers.get(coordinate.group(1)) if coordinate else None
+                    return re.sub(r"<v>[^<]*</v>", lambda _: "<v>" + raw + "</v>", cell, count=1) if raw is not None else cell
+                content = re.sub(r"<c\b[^>]*>.*?</c>", preserve_number, xml, flags=re.DOTALL).encode("utf-8")
+            precise_archive.writestr(entry, content)
+    precise_temporary.replace(xlsx_path)
+    temporary.unlink()
+    print(f"Core Excel formatting complete: {worksheet.max_row - 1:,} rows, {len(columns)} columns; CoreData table; identifiers/header frozen; values retained.")
 
 
 def build_core_panel(input_path: Path = INPUT_PATH) -> tuple[pd.DataFrame, dict]:
