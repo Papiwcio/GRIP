@@ -133,7 +133,7 @@ Interaction (extended workbook only):
 - The resulting product follows the existing `standardise` metadata: z-score using ddof=0 in standardised variants, centred raw product in raw variants. Ordinary regressors retain their original treatment; no input is double-standardised.
 - `add_interaction_columns()` initially prepares product availability for missing-value checks. `get_estimation_sample()` and `build_design_matrix()` rebuild the final product after complete cases; preliminary full-data products are never used as fitted regressors.
 - Constituent main effects must accompany every active interaction; otherwise the code reports a specification error. Centring changes the interpretation of main effects to the other continuous input's mean, while preserving raw interaction coefficients, fitted values, residuals, R² and interaction t/p tests.
-- Actual means, population SDs, product moments, correlations, all-predictor VIF and 64 before/after comparisons are recorded in `results_interaction_centring.xlsx`. Reproduce with `python3 code_check_interaction_centring.py`; see `documentation_interaction_centring.md`.
+- Actual means, population SDs, product moments, correlations, all-predictor VIF and 64 before/after comparisons are recorded in `archive/results_interaction_centring_2026-10-08.xlsx`. Reproduce with `python3 code_check_interaction_centring.py`; see `documentation_interaction_centring.md`.
 
 Lag growth:
 

@@ -1,6 +1,7 @@
 """Test generic centring and export reproducible before/after OLS diagnostics."""
 from copy import deepcopy
 from pathlib import Path
+from datetime import date
 import tempfile
 import unittest
 import numpy as np
@@ -113,7 +114,7 @@ def assert_equivalent(old,new):
             np.testing.assert_allclose(a.params[term],b.params[term],atol=1e-8,rtol=1e-7)
 
 
-def actual_model_audit():
+def actual_model_audit(output_path=None):
     c=o.normalise_config(o.CONFIG); data,audit=apply_manual_exclusions(pd.read_parquet(c['input_file']))
     models=o.build_models(c); data=o.add_interaction_columns(data,c,models)
     comparisons=[]; inputs=[]; products=[]; vifs=[]
@@ -152,7 +153,17 @@ def actual_model_audit():
             'Comparison':product_df.loc[product_df.variant.eq('winsor_std'),['scenario','period','N','coefficient_before','coefficient_after','p_before','p_after','VIF_before','VIF_after']],
             'Equivalence':pd.DataFrame(comparisons),'Input_Means_SDs':pd.DataFrame(inputs),
             'Interaction_Details':product_df,'Predictor_VIF':pd.DataFrame(vifs)}
-    with pd.ExcelWriter('results_interaction_centring.xlsx',engine='xlsxwriter') as writer:
+    # Migration checks are historical references, not an active results report.
+    # Preserve every existing snapshot rather than overwrite the first audit.
+    destination = Path(output_path) if output_path is not None else Path('archive') / f'results_interaction_centring_{date.today().isoformat()}.xlsx'
+    sequence = 2
+    while destination.exists() and output_path is None:
+        destination = Path('archive') / f'results_interaction_centring_snapshot_{sequence}_{date.today().isoformat()}.xlsx'
+        sequence += 1
+    if destination.exists():
+        raise FileExistsError(f'Historical audit already exists: {destination}')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(destination,engine='xlsxwriter') as writer:
         header=writer.book.add_format({'bold':True,'bg_color':'#1F4E78','font_color':'white','text_wrap':True,'valign':'vcenter'})
         decimal=writer.book.add_format({'num_format':'0.000000','font_size':10})
         integer=writer.book.add_format({'num_format':'#,##0','font_size':10})
@@ -176,6 +187,7 @@ def actual_model_audit():
                 for i,description in enumerate(table.description,start=1):
                     ws.set_row(i,max(32,15*max(1,len(textwrap.wrap(str(description),width=95)))+6))
     print('PASS: all 64 actual OLS model comparisons. Maximum prediction difference:',max(r['prediction_max_diff'] for r in comparisons))
+    print('Historical audit saved:', destination)
     print(product_df.loc[product_df.variant.eq('winsor_std'),['scenario','period','coefficient_before','coefficient_after','VIF_before','VIF_after','p_after']].to_string(index=False))
     return tables
 
@@ -206,7 +218,7 @@ def severe_equivalence():
                         np.testing.assert_allclose(pre['slopes'][['estimate','std_error','p_value']],post['slopes'][['estimate','std_error','p_value']],atol=1e-7)
     finally:
         o.CONFIG['centre_interaction_inputs']=old_setting
-    print('PASS: all six Firth predicted probabilities and AMEs; all 24 supplementary OLS fits and profitability-slope contrasts preserved.')
+    print('PASS: changing the unused centring setting preserves all six additive Firth fits/AMEs and twelve additive supplementary OLS fits.')
 
 
 if __name__=='__main__':

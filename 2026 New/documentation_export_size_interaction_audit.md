@@ -1,6 +1,6 @@
 # Export intensity × log-sales interaction audit
 
-Historical pre-implementation diagnosis. Mean-centred construction was subsequently implemented on 8 October 2026; see `documentation_interaction_centring.md` and `results_interaction_centring.xlsx` for the current methodology, all-model equivalence checks and coefficient scales. The tables below retain the original uncentred estimates as the audit baseline.
+Historical pre-implementation diagnosis. Mean-centred construction was subsequently implemented on 8 October 2026; see `documentation_interaction_centring.md` and `archive/results_interaction_centring_2026-10-08.xlsx` for the current methodology, all-model equivalence checks and coefficient scales. The tables below retain the original uncentred estimates as the audit baseline.
 
 Audit date: 8 October 2026. Scope: the four RANK2019 coefficients in `results_ols_scenarios.xlsx`, `Compare_Main!G62:J62`, corresponding to P1/P2/P3/FULL standardised winsorised OLS. This was a read-only investigation of existing estimates. The results workbook, canonical files and manual-exclusion policy were not changed. Local workbook annotations and archive edits were preserved.
 

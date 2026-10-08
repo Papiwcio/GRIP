@@ -105,25 +105,26 @@ def audit_models(result):
                 name = f"BottomP1_{threshold}"
                 product = f"profitability_z_x_{name}"
                 group = result["growths"][sample, threshold, period]
-                augmented = result["interactions"][sample, threshold, period]
-                fit = augmented["fit"]
+                augmented = result["interactions"].get((sample, threshold, period))
+                fit = augmented["fit"] if augmented is not None else group["fit"]
                 design = pd.DataFrame(fit.model.exog, index=prepared.x.index, columns=fit.model.exog_names)
                 np.testing.assert_allclose(design[profit], prepared.x[profit], atol=1e-12)
-                np.testing.assert_allclose(design[product], prepared.x[profit] * frame.loc[design.index, name].astype(float), atol=1e-12)
-                covariance = fit.cov_params()
-                combined = float(fit.params[profit] + fit.params[product])
-                combined_variance = float(covariance.loc[profit, profit] + covariance.loc[product, product] + 2 * covariance.loc[profit, product])
-                combined_row = augmented["slopes"].set_index("group").loc[name]
-                np.testing.assert_allclose([combined, np.sqrt(combined_variance)], combined_row[["estimate", "std_error"]].to_numpy(dtype=float), atol=1e-10)
-                units.append({"sample": sample, "period": period, "threshold": threshold,
-                              "main_effect_column": profit, "main_effect_values": "Within-model-sample z-score",
-                              "interaction_source_column": profit, "interaction_column": product,
-                              "identical_units": "Yes", "combined_effect_valid": "Yes",
-                              "var_profitability": covariance.loc[profit, profit],
-                              "var_interaction": covariance.loc[product, product],
-                              "covariance_main_interaction": covariance.loc[profit, product],
-                              "combined_coefficient": combined, "combined_variance": combined_variance,
-                              "combined_SE": np.sqrt(combined_variance), "combined_p_value": combined_row.p_value})
+                if augmented is not None:
+                    np.testing.assert_allclose(design[product], prepared.x[profit] * frame.loc[design.index, name].astype(float), atol=1e-12)
+                    covariance = fit.cov_params()
+                    combined = float(fit.params[profit] + fit.params[product])
+                    combined_variance = float(covariance.loc[profit, profit] + covariance.loc[product, product] + 2 * covariance.loc[profit, product])
+                    combined_row = augmented["slopes"].set_index("group").loc[name]
+                    np.testing.assert_allclose([combined, np.sqrt(combined_variance)], combined_row[["estimate", "std_error"]].to_numpy(dtype=float), atol=1e-10)
+                    units.append({"sample": sample, "period": period, "threshold": threshold,
+                                  "main_effect_column": profit, "main_effect_values": "Within-model-sample z-score",
+                                  "interaction_source_column": profit, "interaction_column": product,
+                                  "identical_units": "Yes", "combined_effect_valid": "Yes",
+                                  "var_profitability": covariance.loc[profit, profit],
+                                  "var_interaction": covariance.loc[product, product],
+                                  "covariance_main_interaction": covariance.loc[profit, product],
+                                  "combined_coefficient": combined, "combined_variance": combined_variance,
+                                  "combined_SE": np.sqrt(combined_variance), "combined_p_value": combined_row.p_value})
                 model_vifs = {}
                 for column in design.columns:
                     if column == "const":
@@ -150,7 +151,7 @@ def audit_models(result):
                                       "profit_SD_z": values.std(ddof=0), "profit_min_z": values.min(), "profit_max_z": values.max()})
                 influence.append({"sample": sample, "period": period, "threshold": threshold,
                                   "N": len(design), "VIF_profitability": model_vifs[profit],
-                                  "VIF_profitability_interaction": model_vifs[product],
+                                  "VIF_profitability_interaction": model_vifs.get(product, np.nan),
                                   "VIF_group": model_vifs[name], "condition_number": np.linalg.cond(design),
                                   "matrix_rank": np.linalg.matrix_rank(design), "parameters": len(design.columns),
                                   "profit_SD_z_other": group_sds[0], "profit_SD_z_bottom": group_sds[1],
@@ -162,9 +163,10 @@ def audit_models(result):
                 group_robust.append({"sample": sample, "threshold": threshold, "period": period,
                                      "N": group["summary"]["N"], "bottom_N": group["summary"]["bottom_N"],
                                      **coefficient(group["fit"], name)})
-                interaction_robust.append({"sample": sample, "threshold": threshold, "period": period,
-                                           "N": len(design), **coefficient(fit, product),
-                                           "bottom_profit_slope": combined, "bottom_profit_p_value": combined_row.p_value})
+                if augmented is not None:
+                    interaction_robust.append({"sample": sample, "threshold": threshold, "period": period,
+                                               "N": len(design), **coefficient(fit, product),
+                                               "bottom_profit_slope": combined, "bottom_profit_p_value": combined_row.p_value})
                 if period == "P2" and threshold == 20:
                     primary = group["fit"]
                     design_group = pd.DataFrame(primary.model.exog, index=prepared.x.index, columns=primary.model.exog_names)

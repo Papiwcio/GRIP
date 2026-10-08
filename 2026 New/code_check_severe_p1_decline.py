@@ -89,26 +89,18 @@ def check_results(result):
                 np.testing.assert_allclose(prepared.y, main['result'].model.endog, atol=1e-12)
                 assert prepared.lower==main['winsorisation_lower_bound'] and prepared.upper==main['winsorisation_upper_bound']
                 for threshold in [15,20,25]:
-                    augmented = result['interactions'][sample,threshold,period]
+                    augmented = result['growths'][sample,threshold,period]
                     name=f'BottomP1_{threshold}'
                     assert sum(v.startswith('BottomP1_') for v in augmented['fit'].params.index)==1
-                    covariate=f'profit_margin_start_{period}'
-                    product=f'profitability_z_x_{name}'
-                    actual=augmented['fit'].model.exog[:,augmented['fit'].model.exog_names.index(product)]
-                    expected=prepared.x[covariate]*frame.loc[prepared.x.index,name].astype(float)
-                    np.testing.assert_array_equal(actual,expected)
-                    contrast=np.zeros(len(augmented['fit'].params))
-                    for term in [covariate,product]:
-                        contrast[augmented['fit'].params.index.get_loc(term)]=1
-                    independently=augmented['fit'].t_test(contrast)
-                    reported=augmented['slopes'].set_index('group').loc[name]
-                    np.testing.assert_allclose(reported['estimate'],independently.effect.item(),atol=1e-12)
-                    np.testing.assert_allclose(reported['std_error'],independently.sd.item(),atol=1e-12)
-                    np.testing.assert_allclose(reported['p_value'],independently.pvalue.item(),atol=1e-12)
+                    assert not any('_x_' in term for term in augmented['fit'].params.index)
     if result['config']['logit_method']=='firth':
         assert len(result['logits'])==6
         assert all(r['fit'].score_max<result['config']['tolerance'] for r in result['logits'].values())
-    assert len(result['growths'])==12 and len(result['interactions'])==12
+    assert len(result['growths'])==12 and not result['interactions']
+    assert not ols.get_active_interactions(shared)
+    assert '06_SELECTED_INTERACTIONS' not in result['sections']
+    for prepared in result['prepared'].values():
+        assert not any('_x_' in term for term in prepared.x.columns)
     for sheet,sections in result['sections'].items():
         assert any(not table.empty for _,table in sections),sheet
     sensitivity=result['audit']['P2_lag_sensitivity']
@@ -118,9 +110,9 @@ def check_results(result):
     separation=result['audit']['separation']
     assert separation.loc[separation['sample'].eq('Rank2019'),'separation'].eq('None').all()
     assert separation.loc[separation['sample'].eq('Rank2019_Manufacturing'),'separation'].eq('Quasi-complete').all()
-    assert result['audit']['interaction_units'].identical_units.eq('Yes').all()
-    assert result['audit']['interaction_units'].combined_effect_valid.eq('Yes').all()
-    print('PASS: shared OLS samples/designs/outcome preparation; fixed nested groups; exactly one dummy per model; original-scale interaction; slope covariance/inference; all required workbook sections.')
+    assert result['audit']['interaction_units'].empty
+    assert result['audit']['interaction_threshold_effects'].empty
+    print('PASS: shared additive OLS samples/designs/outcome preparation; fixed nested groups; exactly one dummy per model; no interactions in any fitted design or report; all required workbook sections.')
 
 
 def independent_data_checks(result):
@@ -192,7 +184,7 @@ def independent_data_checks(result):
             p_value = 2 * norm.sf(abs(value / se))
             np.testing.assert_allclose([value, se, p_value], [record.AME, record.std_error, record.p_value], atol=1e-6, rtol=1e-5)
             checked += 1
-    print(f'PASS: independent QR coefficients/covariances for 24 OLS fits and numerical probability/gradient checks for all {checked} principal AMEs.')
+    print(f'PASS: independent QR coefficients/covariances for 12 additive OLS fits and numerical probability/gradient checks for all {checked} principal AMEs.')
 
 
 if __name__=='__main__':

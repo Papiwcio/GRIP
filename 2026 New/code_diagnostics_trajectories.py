@@ -229,7 +229,7 @@ def build_structure_readme(config: dict[str, Any]) -> pd.DataFrame:
         ),
     ]
     rows.append(('method note','20-31','orange','Mean-centred interactions','Compare within the same scenario-period complete cases.',
-                 'Continuous inputs are centred using estimation-sample means before multiplying; binary metadata retains 0/1. Ordinary regressors keep existing treatment. Correlation diagnostics use centred products. Means/SDs and before/after VIF: results_interaction_centring.xlsx.'))
+                 'Continuous inputs are centred using estimation-sample means before multiplying; binary metadata retains 0/1. Ordinary regressors keep existing treatment. Correlation diagnostics use centred products. Means/SDs and before/after VIF: archive/results_interaction_centring_2026-10-08.xlsx.'))
     rows.extend(("manual exclusions", "all", "grey", item, "Apply consistently with every regression.", description)
                 for item, description in manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])))
     return pd.DataFrame(

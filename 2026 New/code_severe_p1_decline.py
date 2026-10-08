@@ -26,14 +26,13 @@ CONFIG = {
     "thresholds": [15, 20, 25],
     "primary_threshold": 20,
     "logit_method": "firth",
-    "interaction_regressor": "profit_margin",
     "max_iter": 500,
     "tolerance": 1e-8,
 }
 SHEETS = [
     "00_README", "01_GROUP_PROFILE", "02_LOGIT_BOTTOMP1",
     "03_LOGIT_MARGINAL_EFFECTS", "04_P2_GROUP_MODEL", "05_P3_GROUP_MODEL",
-    "06_SELECTED_INTERACTIONS", "07_THRESHOLD_ROBUSTNESS",
+    "07_THRESHOLD_ROBUSTNESS",
 ]
 METHOD_SOURCE = "https://search.r-project.org/CRAN/refmans/logistf/html/logistf.html"
 LR_SOURCE = "https://raw.githubusercontent.com/cran/logistf/master/R/logistftest.R"
@@ -199,7 +198,7 @@ def marginal_effects(prepared: Prepared, fitted: LogisticFit, shared) -> pd.Data
         derivative[:, columns.index(column)] = 1
         own_scale = prepared.scales[column]
         delta_raw = own_scale["sd"] if own_scale["standardised"] else 1.0
-        for interaction in ols.get_active_interactions():
+        for interaction in ols.get_active_interactions(shared):
             sources = [ols.resolve_interaction_variable(shared, name, "P1") for name in interaction["variables"]]
             if column not in sources:
                 continue
@@ -216,13 +215,13 @@ def marginal_effects(prepared: Prepared, fitted: LogisticFit, shared) -> pd.Data
         records.append({"sample": prepared.sample, "variable": column,
                         "label": prepared.registry[column]["display_name"],
                         "change": "Local derivative per 1 SD (not a finite shift)" if own_scale["standardised"] else "Local derivative per raw unit",
-                        "effect_type": "Total derivative, interactions included", **statistics})
+                        "effect_type": "Total derivative" + (", interactions included" if ols.get_active_interactions(shared) else ", additive model"), **statistics})
     if shared["include_owner"]:
         column = shared["owner_variable"]["column"]
         x0, x1 = x.copy(), x.copy()
         x0[:, columns.index(column)] = 0
         x1[:, columns.index(column)] = 1
-        for interaction in ols.get_active_interactions():
+        for interaction in ols.get_active_interactions(shared):
             sources = [ols.resolve_interaction_variable(shared, name, "P1") for name in interaction["variables"]]
             if column in sources:
                 product = ols.build_interaction_column_name(interaction["name"], "P1")
@@ -411,7 +410,7 @@ def readme(config, shared, status):
         ("Samples", "RANK2019 (primary) and RANK2019_MANUFACTURING (secondary). Internal shared masks are Rank2019 and Rank2019_Manufacturing. Manufacturing is nested within ranking; these are not independent replications."),
         ("Price basis", f"{mode.title()} sales growth. All model outcomes and lags follow code_config.PERIOD_MODEL_SETTINGS."),
         ("Primary definition", f"BottomP1_20 = 1 only when {ols.get_growth_prefix(shared)}growth_P1 < -0.20; equality is outside the severe group. Membership is fixed by P1."),
-        ("Robustness", "Repeat the logit, P2/P3 group models, and profitability interactions separately at -15%, -20%, -25%. Never include multiple threshold indicators in one model."),
+        ("Robustness", "Repeat the additive logit and P2/P3 group models separately at -15%, -20%, -25%. Never include multiple threshold indicators in one model."),
         ("Sample and missingness", "Apply the same ranking/manufacturing and complete-trajectory masks as main OLS, then the same period-specific complete-case exclusions. Missing P1 growth has unknown membership, never zero."),
         ("Group profile", "Raw simple P1/P2/P3 growth and 2019 starting covariates; N, mean, median, sample SD. Profile shares use the selected complete-trajectory sample, not the smaller regression samples."),
         ("Logit outcome", "BottomP1_20 (0/1), neither standardised nor winsorised. P1=2019-2020 simple growth determines membership; log-growth columns are not compared with percentage thresholds."),
@@ -421,14 +420,12 @@ def readme(config, shared, status):
         ("Logit inference", "Wald coefficient z tests and 95% intervals using inverse expected Fisher information; odds-ratio intervals exponentiate coefficient intervals. They are not profile-penalised intervals."),
         ("Model statistics", "McFadden pseudo-R² uses unpenalised log-likelihood at the fitted coefficients versus intercept-only ML. LR is penalised for Firth and constrains all slopes to zero using the same full-design Jeffreys penalty."),
         ("AIC/BIC", "AIC_plug_in and BIC_plug_in evaluate the unpenalised likelihood at bias-reduced estimates. They are descriptive, not conventional MLE model-selection criteria. Do not compare them across thresholds with different responses."),
-        ("Average marginal effects", "Preferred probability-scale interpretation. Continuous AMEs are average total derivatives per one SD, including the chain rule for export_ratio × ln_sales. Binary ownership and sector effects are average discrete probability differences; delta-method Wald intervals."),
+        ("Average marginal effects", "Preferred probability-scale interpretation. Continuous AMEs are average derivatives per one SD in the additive model. Binary ownership and sector effects are average discrete probability differences; delta-method Wald intervals."),
         ("P2 outcome", period_dependent_metadata(mode, "P2")["label"] + "; " + period_dependent_metadata(mode, "P2")["formula"]),
         ("P3 outcome", period_dependent_metadata(mode, "P3")["label"] + "; " + period_dependent_metadata(mode, "P3")["formula"]),
         ("Growth preprocessing", f"Use principal OLS winsor_std: clip only the outcome at {shared['winsor_lower']:.0%}/{shared['winsor_upper']:.0%}, then standardise it and metadata-designated continuous predictors within the same period estimation sample (ddof=0). Group indicators remain 0/1."),
-        ("Growth controls", "Same period starting covariates, ownership, export_ratio × ln_sales, sector controls and lag growth as main OLS. P2's group coefficient is conditional on P1 growth through its lag; it is an incremental threshold association."),
-        ("Shared interaction centring", "Metadata-defined continuous inputs are centred on the model's complete-case sample before multiplication; binary inputs remain 0/1. Products follow standardisation metadata once. Logit AMEs use the centred product rule with fixed fitting-sample means. The separate profitability_z × BottomP1 term already has a centred continuous input and retains established units."),
-        ("Selected interaction", "Only standardised profit_margin × BottomP1, estimated separately for P2 and P3. Do not restandardise this product. The ordinary-firm slope is β1, the severe-group slope β1+β3, and the slope difference β3. The group main effect is evaluated at mean profitability."),
-        ("Interaction audit", "Both profitability main effect and interaction use exactly the same z-score; combined inference uses Var(β1)+Var(β3)+2Cov(β1,β3). No scaling mismatch was found."),
+        ("Growth controls", "Same additive period starting covariates, ownership, sector controls and lag growth as primary OLS; no interaction terms. P2's group coefficient is conditional on P1 growth through its lag; it is an incremental threshold association."),
+        ("Model specification", "All severe-decline models are additive. Export × size and profitability × severe-group products are absent from estimation, marginal effects and threshold robustness. Shared interaction configuration for other analyses remains unchanged."),
         ("Influence warning", "The manual-exclusion audit at the end of this README records earlier influential firms and their comparability reasons. Recomputed VIF, subgroup-variation and influence diagnostics describe the current samples. Remaining influential observations can still affect inference; these exclusions alone do not establish robustness."),
         ("Raw-growth mean warning", "Descriptive growth is raw and can be affected by extreme observations. Compare means with the appended medians, 5th/95th percentiles, maxima and mean-without-largest diagnostics."),
         ("P2 lag sensitivity", "An additional -20% diagnostic removes the continuous P1-growth lag on exactly the same sample and outcome scaling. It does not replace the primary model. Both versions remain conditional associations, not causal recovery effects."),
@@ -436,7 +433,7 @@ def readme(config, shared, status):
         ("Firth implementation", "Project-local NumPy/SciPy adjusted-score solver, not execution of the R logistf package. Coefficients independently reproduced by BFGS; covariance is inverse original expected Fisher information. Wald/delta intervals are approximate, particularly for sparse or separated cells."),
         ("FULL", "No FULL model: group definition mechanically contains part of FULL growth."),
         ("Quantile distinction", "Fixed realised-P1 firm groups followed over time; no conditional-quantile models are estimated."),
-        ("Interpretation cautions", "Complete-trajectory selection excludes firms without later outcomes. Subsequent covariates and lags may mediate earlier decline; group comparisons and interactions are conditional associations, not causal recovery effects. Firth reduces first-order coefficient bias; it does not guarantee every fitted probability moves toward one half."),
+        ("Interpretation cautions", "Complete-trajectory selection excludes firms without later outcomes. Subsequent covariates and lags may mediate earlier decline; group comparisons are conditional associations, not causal recovery effects. Firth reduces first-order coefficient bias; it does not guarantee every fitted probability moves toward one half."),
         ("Model status", status),
         ("Method source", METHOD_SOURCE), ("Penalised LR reference", LR_SOURCE),
         ("Reproduce", "python3 code_severe_p1_decline.py; shared settings remain in code_config.py. Canonical datasets and other workbooks are not modified."),
@@ -459,7 +456,7 @@ def write_workbook(path, sections):
         colours = {"00_README": "#1F4E78", "01_GROUP_PROFILE": "#548235",
                    "02_LOGIT_BOTTOMP1": "#1F4E78", "03_LOGIT_MARGINAL_EFFECTS": "#1F4E78",
                    "04_P2_GROUP_MODEL": "#1F4E78", "05_P3_GROUP_MODEL": "#1F4E78",
-                   "06_SELECTED_INTERACTIONS": "#7030A0", "07_THRESHOLD_ROBUSTNESS": "#C65911"}
+                   "07_THRESHOLD_ROBUSTNESS": "#C65911"}
         body = book.add_format({"font_name": "Arial", "font_size": 10, "valign": "vcenter"})
         decimal = book.add_format({"font_name": "Arial", "font_size": 10, "num_format": "0.0000", "valign": "vcenter"})
         integer = book.add_format({"font_name": "Arial", "font_size": 10, "num_format": "#,##0", "valign": "vcenter"})
@@ -544,7 +541,7 @@ def write_workbook(path, sections):
 
 def run_analysis(config=None):
     config = {**CONFIG, **(config or {})}
-    shared = ols.normalise_config(ols.CONFIG)
+    shared = ols.normalise_config({**ols.CONFIG, "include_interactions": False})
     if not shared["standardised_models"] or not shared["standardise_dependent"] or not shared["winsorise_dependent"]:
         raise ValueError("This supplement requires the current principal winsor_std OLS settings.")
     source = Path(config["input_file"])
@@ -556,8 +553,6 @@ def run_analysis(config=None):
     prefix = ols.get_growth_prefix(shared)
     p1_growth = f"{prefix}growth_P1"
     models = ols.build_models(shared)
-    if config["interaction_regressor"] != "profit_margin":
-        raise ValueError("Only the explicitly requested profitability interaction is supported.")
     data = ols.add_interaction_columns(data, shared, models)
     for threshold in config["thresholds"]:
         data[f"BottomP1_{threshold}"] = bottom_indicator(data[p1_growth], threshold)
@@ -579,14 +574,12 @@ def run_analysis(config=None):
                 if config["logit_method"] == "firth":
                     raise
             for period in ["P2", "P3"]:
-                profitability = ols.render_regressor_column(next(r for r in shared["base_regressors"] if r["base_name"] == config["interaction_regressor"]), period)
+                profitability = ols.render_regressor_column(next(r for r in shared["base_regressors"] if r["base_name"] == "profit_margin"), period)
                 growths[sample, threshold, period] = fit_growth(prepared[sample, period], frame, threshold, shared, profitability)
-                interactions[sample, threshold, period] = fit_growth(prepared[sample, period], frame, threshold, shared, profitability, True)
     primary = config["primary_threshold"]
     profile = build_profiles(frames, shared, models, primary)
     primary_logits = [result for (sample, threshold), result in logits.items() if threshold == primary]
-    primary_interactions = [result for (sample, threshold, period), result in interactions.items() if threshold == primary]
-    threshold_counts, logit_robust, group_robust, interaction_robust = [], [], [], []
+    threshold_counts, logit_robust, group_robust = [], [], []
     for sample, frame in frames.items():
         for threshold in config["thresholds"]:
             name = f"BottomP1_{threshold}"
@@ -606,18 +599,13 @@ def run_analysis(config=None):
                 result = growths[sample, threshold, period]
                 coefficient = result["coefficients"].set_index("variable").loc[name].to_dict()
                 group_robust.append({"N": result["summary"]["N"], **coefficient})
-                result = interactions[sample, threshold, period]
-                for _, slope in result["slopes"].iterrows():
-                    if slope["group"] in {name, "Difference between slopes"}:
-                        interaction_robust.append({"N": result["summary"]["N"], **slope.to_dict()})
-    status = f"{len(logits)} logistic, {len(growths)} group OLS, {len(interactions)} interaction OLS primary/threshold models completed. {len(failures)} explicitly flagged failures. Audit diagnostics additionally compare one ranking MLE fit and two P2 fits without lag growth."
+    status = f"{len(logits)} additive logistic and {len(growths)} additive group OLS primary/threshold models completed. No interaction models estimated. {len(failures)} explicitly flagged failures. Audit diagnostics additionally compare one ranking MLE fit and two P2 fits without lag growth."
     sections = {
         "00_README": [("Specification and interpretation", readme(config, shared, status))],
         "01_GROUP_PROFILE": [("Group counts and sample shares", profile[0]), ("Continuous variables: severe group minus other firms", profile[1]), ("Control composition: within-group shares", profile[2])],
         "02_LOGIT_BOTTOMP1": [("Primary -20% model statistics", pd.DataFrame([r["summary"] for r in primary_logits])), ("Coefficients and odds ratios: approximate Wald inference", concat([r["coefficients"] for r in primary_logits]))],
         "03_LOGIT_MARGINAL_EFFECTS": [("Primary -20% average marginal effects: probability units", concat([r["marginal_effects"] for r in primary_logits]))],
-        "06_SELECTED_INTERACTIONS": [("Primary profitability-interaction model statistics", pd.DataFrame([r["summary"] for r in primary_interactions])), ("Profitability slopes and differences", concat([r["slopes"] for r in primary_interactions])), ("Full interaction-model coefficients", concat([r["coefficients"] for r in primary_interactions]))],
-        "07_THRESHOLD_ROBUSTNESS": [("Membership counts: strict -15%, -20%, -25% thresholds", pd.DataFrame(threshold_counts)), ("Selected logistic marginal effects", pd.DataFrame(logit_robust)), ("P2 and P3 fixed-group coefficients", pd.DataFrame(group_robust)), ("Profitability slope difference and severe-group slope", pd.DataFrame(interaction_robust))],
+        "07_THRESHOLD_ROBUSTNESS": [("Membership counts: strict -15%, -20%, -25% thresholds", pd.DataFrame(threshold_counts)), ("Selected logistic marginal effects", pd.DataFrame(logit_robust)), ("P2 and P3 fixed-group coefficients", pd.DataFrame(group_robust))],
     }
     for period in ["P2", "P3"]:
         results = [r for (sample, threshold, p), r in growths.items() if threshold == primary and p == period]
@@ -640,10 +628,10 @@ def run_analysis(config=None):
     sections["02_LOGIT_BOTTOMP1"].append(("Manufacturing sector counts before complete cases", audit["sector_counts"].query("sample == 'Rank2019_Manufacturing'")))
     sections["04_P2_GROUP_MODEL"].append(("Sensitivity: remove continuous P1-growth lag, retain same sample", audit["P2_lag_sensitivity"]))
     concise_influence = audit["influence"][["sample", "period", "threshold", "VIF_profitability",
-                                           "VIF_profitability_interaction", "profit_SD_z_other",
+                                           "VIF_group", "profit_SD_z_other",
                                            "profit_SD_z_bottom", "outlier_nip", "outlier_profit_SS_share",
                                            "outlier_leverage", "outlier_Cooks_D"]]
-    sections["06_SELECTED_INTERACTIONS"].append(("Multicollinearity and influence: do not infer robust slopes from significance alone", concise_influence))
+    sections["05_P3_GROUP_MODEL"].append(("Additive-model multicollinearity and influence, all thresholds and periods", concise_influence))
     write_workbook(Path(config["output_file"]), sections)
     if hashlib.sha256(source.read_bytes()).hexdigest() != source_hash:
         raise ValueError("Canonical input was unexpectedly changed.")

@@ -20,6 +20,10 @@ The implementation imports side-effect-free builder constants and shared manual-
 - `results_data_quality_audit_metadata.json`: run manifest, protected-input hashes, variable inventory, coverage, independent performance thresholds, rule execution contexts and statistical references.
 - `data_quality_audit_decisions.csv`: persistent researcher log keyed by stable finding IDs.
 
+The JSON metadata is the **machine-readable reproducibility record for one audit run**, not a second financial dataset or an exclusion list. It records start/end time, software versions, source/code hashes, protected-file before/after checks, the exported workbook hash, variable coverage/definitions, evaluated rule contexts, screening reference values, independently recomputed performance thresholds and the summary/top-20 review list. It can establish which inputs and rules produced that report and whether protected files were unchanged *during that run*. A later legitimate change to a regression workbook or script need not match its historical hash; it does not invalidate the old audit. A fresh audit regenerates the JSON beside its workbook. Tests also verify this run record, so it is retained.
+
+The `.mjs` file is an **optional presentation and visual-check helper** using the bundled artifact-tool runtime. The normal audit exports the complete large workbook through `code_write_data_quality_audit.py`, because full-size artifact-tool authoring exceeded memory limits. When `python code_audit_data_quality.py --previews <directory>` is requested, the runner passes at most 12 records from each of the six sheets to `.mjs` to render bounded previews. The helper can export a supplied presentation payload, but is not the normal full-report exporter. It does not calculate financial ratios, classify findings, alter review decisions or exclude companies. It is still called by the supported preview workflow and included in provenance hashes; it is retained as an active optional helper.
+
 Run from this directory using the established project Python environment with pandas, numpy and a Parquet engine (PyArrow):
 
 ```sh

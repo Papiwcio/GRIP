@@ -17,7 +17,7 @@ Current group counts before model-specific missing-value exclusions:
 | Rank2019 | 1,822 | 341 (18.72%) | 226 (12.40%) | 153 (8.40%) |
 | Rank2019_Manufacturing | 786 | 133 (16.92%) | 87 (11.07%) | 53 (6.74%) |
 
-Logit complete-case N is 1,786 and 781, respectively; P2 N is 1,791 and 782; P3 N is 1,795 and 783. Each period uses the same N across its group-only and interaction models and across thresholds.
+Logit complete-case N is 1,786 and 781, respectively; P2 N is 1,791 and 782; P3 N is 1,795 and 783. Each period uses the same N across thresholds. On 8 October 2026, all interaction terms were removed at the researcher's request. The previous workbook is retained as `archive/results_severe_p1_decline_analysis_2026-10-08.xlsx`.
 
 ## Fixed severe-decline definitions
 
@@ -37,11 +37,11 @@ Each indicator is created in analysis memory only and remains fixed for all late
 
 Apply `code_config.build_sample_mask` with the relevant sample and `has_complete_ntrajectory`. Model-specific complete cases and design matrices use the same functions as `code_ols_scenarios.py`.
 
-The logistic predictor set is the main P1 specification: 2019 `ln_sales`, `profit_margin`, `export_ratio`, `asset_turnover`, `capital_ratio`, and `sales_per_employee`; `owner_num`; the existing export-ratio × size interaction; 2018–2019 annualised log-growth lag; and sector controls with `production` as reference. No realised P1 outcome, later-period covariate, or trajectory classification enters the logistic predictor matrix.
+The logistic predictor set is the primary additive P1 specification: 2019 `ln_sales`, `profit_margin`, `export_ratio`, `asset_turnover`, `capital_ratio`, and `sales_per_employee`; `owner_num`; 2018–2019 annualised log-growth lag; and sector controls with `production` as reference. No interaction, realised P1 outcome, later-period covariate, or trajectory classification enters the logistic predictor matrix.
 
 Starting covariates are period-specific as in OLS. Ownership and sector use the established stable firm descriptors, treated as conceptually predetermined. Those canonical descriptors take the first non-missing observation from 2019 onward; their predetermination is a modelling assumption rather than proof that every underlying observation predates P1.
 
-Model-specific missing values are dropped without imputation. Continuous predictors and the existing interaction retain the main standardised OLS definitions: centre and divide by population SD (`ddof=0`) within the estimation sample. A zero SD uses divisor 1, as in main OLS. Ownership, sector indicators, and BottomP1 indicators retain their existing dummy coding. Regressors are not winsorised.
+Model-specific missing values are dropped without imputation. Continuous predictors retain the main standardised OLS definitions: centre and divide by population SD (`ddof=0`) within the estimation sample. A zero SD uses divisor 1, as in main OLS. Ownership, sector indicators, and BottomP1 indicators retain their existing dummy coding. Regressors are not winsorised. The runner uses local `include_interactions=False`; shared metadata and other analysis specifications are unchanged.
 
 ## Logistic estimator and inference
 
@@ -57,19 +57,17 @@ Method references: [official logistf documentation](https://search.r-project.org
 
 ## Average marginal effects
 
-Continuous AMEs average the total probability derivative for one SD increase in a standardised predictor. Existing interactions are differentiated with the product rule. In particular, the export-ratio and size AMEs include their shared interaction; they do not incorrectly hold that interaction fixed.
-
-Since 8 October 2026, shared interaction inputs are centred on the actual model complete-case sample before multiplication. Continuous AME product derivatives use the other component minus its fitted centring mean; counterfactual products retain those fitting-sample means. Binary inputs stay 0/1. The separate `profitability_z × BottomP1` already uses centred continuous profitability and remains unstandardised as a product. All original samples, covariance policies and profitability-slope contrast units are retained. See `documentation_interaction_centring.md` and `results_interaction_centring.xlsx` for reference means and validation.
+Continuous AMEs average the probability derivative for one SD increase in a standardised predictor in the additive logit. There are no product-rule contributions because the design contains no interactions. Historical centred-interaction results remain in the archived pre-change workbook; they are not current severe-decline estimates.
 
 For a design derivative `D`, `AME = mean[p(1−p) Dβ]`. Its delta-method gradient is `mean[p(1−p)D + p(1−p)(1−2p)(Dβ)X]`. Variance is `g'Cov(β)g`; 95% intervals and z tests use the normal approximation. This is a local average derivative, not a finite one-SD jump in probability.
 
-Ownership uses average counterfactual probability differences from 0 to 1. Sector effects contrast each sector with production while setting the other sector dummies to zero. Binary changes regenerate any existing product involving that variable. Discrete-effect gradients are the averaged differences of `p(1−p)X` between the two counterfactual matrices. AMEs are reported in probability units and additionally in percentage points.
+Ownership uses average counterfactual probability differences from 0 to 1. Sector effects contrast each sector with production while setting the other sector dummies to zero. Discrete-effect gradients are the averaged differences of `p(1−p)X` between the two counterfactual matrices. AMEs are reported in probability units and additionally in percentage points.
 
-## Subsequent growth and profitability interactions
+## Subsequent additive growth models
 
 P2 outcome: `ngrowth_log_ann_P2 = [ln(sales_2022) − ln(sales_2020)] / 2`. P3 outcome: `ngrowth_log_ann_P3 = [ln(sales_2024) − ln(sales_2022)] / 2`. These are nominal annualised log sales growth, not simple growth rates or log sales levels.
 
-Use the principal OLS `winsor_std` treatment: clip only the outcome at its 1st and 99th estimation-sample percentiles, then standardise it using population SD. All original period-specific covariates, ownership, sector controls, export-ratio × size interaction, and lag-growth controls remain present. Add the unstandardised fixed BottomP1 dummy.
+Use the principal OLS `winsor_std` treatment: clip only the outcome at its 1st and 99th estimation-sample percentiles, then standardise it using population SD. All original additive period-specific covariates, ownership, sector controls and lag-growth controls remain present. Add the unstandardised fixed BottomP1 dummy. Neither export × size nor profitability × BottomP1 is estimated. Removing an interaction can change remaining coefficients; these additive refits supersede the archived estimates.
 
 OLS coefficients are in standard deviations of the transformed outcome. The group coefficient is a conditional group difference. In P2, the lag includes P1 growth, so BottomP1 captures an additional threshold association conditional on continuous prior growth. Subsequent starting covariates may be mediators of P1 decline. These coefficients are not causal recovery effects.
 
@@ -77,7 +75,7 @@ Only `profit_margin_start_P2` or `profit_margin_start_P3` is additionally intera
 
 ## Workbook
 
-Exactly eight sheets are produced, in the requested order:
+Exactly seven sheets are produced, retaining existing sheet names:
 
 1. `00_README`: definitions, samples, timing, method, outcome units, cautions and sources.
 2. `01_GROUP_PROFILE`: principal group counts; raw continuous N/mean/median/sample SD and mean differences; ownership, sector, and manufacturing composition.
@@ -85,12 +83,11 @@ Exactly eight sheets are produced, in the requested order:
 4. `03_LOGIT_MARGINAL_EFFECTS`: principal continuous and discrete AMEs, SEs, z tests, confidence intervals, and percentage points.
 5. `04_P2_GROUP_MODEL`: principal P2 group-model statistics and complete coefficient table.
 6. `05_P3_GROUP_MODEL`: principal P3 group-model statistics and complete coefficient table.
-7. `06_SELECTED_INTERACTIONS`: principal P2/P3 profitability interactions, simple slopes, and complete coefficients.
-8. `07_THRESHOLD_ROBUSTNESS`: group sizes/shares, selected size/profitability/ownership logistic effects, P2/P3 group coefficients, profitability slope differences, and severe-group slopes across all thresholds.
+7. `07_THRESHOLD_ROBUSTNESS`: group sizes/shares, selected size/profitability/ownership/capital-ratio logistic effects and P2/P3 additive group coefficients across all thresholds.
 
-The methodological audit on 6 October 2026 extended these same eight tabs, without replacing primary estimates: raw growth 5th/95th percentiles and maxima in `01`; separation/sector counts and a diagnostic ranking MLE comparison in `02`; matched-sample P2 without-lag sensitivity in `04`; and VIF/subgroup variation/outlier influence in `06`. `07` now also displays capital-ratio AMEs across thresholds. Sample display labels match the main uppercase scenario names; the internal shared mask keys remain `Rank2019` and `Rank2019_Manufacturing`. Coefficient tables explicitly label z-score versus dummy/product scale. Continuous AMEs are explicitly local derivatives, not finite one-SD probability jumps.
+Retained diagnostics comprise raw growth 5th/95th percentiles and maxima in `01`; separation/sector counts and a diagnostic ranking MLE comparison in `02`; matched-sample P2 without-lag sensitivity in `04`; and additive-model VIF/subgroup variation/outlier influence in `05`. `07` displays capital-ratio AMEs across thresholds. The former `06_SELECTED_INTERACTIONS` tab and interaction-specific robustness tables are removed. Sample display labels match the main uppercase scenario names; the internal shared mask keys remain `Rank2019` and `Rank2019_Manufacturing`. Coefficient tables label z-score versus dummy scale. Continuous AMEs are local derivatives, not finite one-SD probability jumps.
 
-The original `documentation_severe_p1_decline_audit.md` is retained as a historical pre-exclusion audit. Its scaling/covariance checks remain valid, but its numerical estimates are superseded by the current workbook and `documentation_manual_exclusions.md`. After the six requested exclusions, manufacturing P3 profitability VIF is 1.533 (interaction 1.306), the −20% interaction is +0.206862 (p=.010196), and the severe-group slope is +0.143884 (p=.057676). Globus and Ordipol are now excluded. Ranking P3 profitability VIF is 1.421 (interaction 1.340), the slope difference is +0.039473 (p=.463051), and the severe-group slope is +0.110152 (p=.026012). The largest remaining firm contributes 13.14% of profitability variation. No unrequested outlier exclusion or predictor winsorisation was introduced; these diagnostics do not establish broad robustness or causality.
+The original `documentation_severe_p1_decline_audit.md` is retained as a historical pre-exclusion audit. All earlier interaction estimates are historical and are superseded by the additive workbook. The pre-change report, including researcher formatting, remains in `archive/results_severe_p1_decline_analysis_2026-10-08.xlsx`. Existing manual exclusions remain; no additional outlier exclusion or predictor winsorisation was introduced. Current influence and VIF diagnostics apply to the additive fits and do not establish broad robustness or causality.
 
 Ranking has no complete/quasi-complete separation and ordinary MLE converges at all thresholds. The current common-Firth choice was retained rather than automatically changed; the audit recommends ordinary MLE for ranking and Firth for manufacturing as a future methodological choice. Approximate Wald/delta covariance in this project uses original expected Fisher information, not current R logistf's augmented-data covariance implementation or profile likelihood. Main OLS and supplementary OLS both use the shared `nonrobust` setting; no robust-covariance replacement was made.
 
@@ -98,6 +95,6 @@ Descriptive means are unweighted, use non-missing raw values, and are not winsor
 
 ## Validation
 
-`code_check_severe_p1_decline.py` checks strict cutoff boundaries and missing values; Firth's closed-form add-half solution for a completely separated two-group model; a separate numerical optimiser; the adjusted-score gradient; interaction-aware AMEs and delta-method gradients by finite differences; exact OLS sample and design-matrix alignment; identical outcome winsorisation/standardisation; fixed nested groups; a single group indicator per model; the unstandardised new interaction product; and linear-combination inference against statsmodels `t_test`.
+`code_check_severe_p1_decline.py` checks strict cutoff boundaries and missing values; Firth's closed-form add-half solution for a completely separated two-group model; a separate numerical optimiser; the adjusted-score gradient; AMEs and delta-method gradients by finite differences; exact additive OLS sample and design-matrix alignment; identical outcome winsorisation/standardisation; fixed nested groups; a single group indicator per model; absence of all products and interaction-specific sheets; and independent QR coefficients/covariances for all twelve OLS fits. All six actual-data Firth fits and all 37 primary AMEs were independently reproduced on 8 October 2026. Other regression workbooks and canonical datasets remained unchanged.
 
-The current run comprises six logistic, twelve group OLS, and twelve profitability-interaction OLS primary/threshold fits, plus one ranking MLE and two P2 no-lag diagnostic fits. `code_audit_severe_p1_decline.py` reproduces audit tables without overwriting the supplementary workbook. Main data and workbooks are hashed before and after validation and must remain unchanged. Validation output reports firm counts, model-specific sample sizes, missingness, solver convergence, primary outcome summaries, and required sheets. No supplementary variables or estimates are written into canonical datasets.
+The current run comprises six additive logistic and twelve additive group OLS primary/threshold fits, plus one ranking MLE and two P2 no-lag diagnostic fits. `code_audit_severe_p1_decline.py` reproduces audit tables without overwriting the supplementary workbook. Main data and workbooks are hashed before and after validation and must remain unchanged. Validation output reports firm counts, model-specific sample sizes, missingness, solver convergence, primary outcome summaries, and required sheets. No supplementary variables or estimates are written into canonical datasets.
