@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import textwrap
+import hashlib
 
+import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import pearsonr
@@ -209,6 +211,8 @@ def uses_shared_sample_filter(config: dict[str, Any]) -> bool:
 
 
 def validate_user_config(config: dict[str, Any]) -> None:
+    if not isinstance(config.get("include_interactions", True), bool):
+        raise ValueError("include_interactions must be True or False.")
     if not isinstance(config.get('centre_interaction_inputs', True), bool):
         raise ValueError("centre_interaction_inputs must be True or False.")
     required_keys = {
@@ -336,7 +340,9 @@ def validate_interaction_metadata(config: dict[str, Any]) -> None:
             )
 
 
-def get_active_interactions() -> list[dict[str, Any]]:
+def get_active_interactions(config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    if config is not None and not config.get("include_interactions", True):
+        return []
     return [
         {
             "name": name,
@@ -669,14 +675,14 @@ def build_interaction_column_name(interaction_name: str, period: str) -> str:
 def get_interaction_column_names(config: dict[str, Any]) -> set[str]:
     return {
         build_interaction_column_name(interaction["name"], period)
-        for interaction in get_active_interactions()
+        for interaction in get_active_interactions(config)
         for period in config["periods"]
     }
 
 
 def get_interaction_source_columns(config: dict[str, Any]) -> set[str]:
     source_columns = set()
-    for interaction in get_active_interactions():
+    for interaction in get_active_interactions(config):
         for period in config["periods"]:
             regressor_period = get_regressor_period_for_model(period)
             for variable_name in interaction["variables"]:
@@ -695,7 +701,7 @@ def add_interaction_columns(
     Shared P1/FULL column names here encode source lineage, not shared means.
     """
     output = df.copy()
-    active_interactions = get_active_interactions()
+    active_interactions = get_active_interactions(config)
     if not active_interactions:
         return output
 
@@ -733,7 +739,7 @@ def centre_interaction_columns(
     provenance = {}
     handled = set()
     for period in config['periods']:
-        for interaction in get_active_interactions():
+        for interaction in get_active_interactions(config):
             product = build_interaction_column_name(interaction['name'], period)
             if product not in regressors or product in handled:
                 continue
@@ -770,7 +776,7 @@ def validate_full_interaction_uses_p1_start(
     if "P1" not in models or "FULL" not in models:
         return True
 
-    for interaction in get_active_interactions():
+    for interaction in get_active_interactions(config):
         p1_column = build_interaction_column_name(interaction["name"], "P1")
         full_column = build_interaction_column_name(interaction["name"], "FULL")
         if p1_column != full_column:
@@ -822,7 +828,7 @@ def build_models(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
             regressors.append(config["owner_variable"]["column"])
         regressors.extend(
             build_interaction_column_name(interaction["name"], period)
-            for interaction in get_active_interactions()
+            for interaction in get_active_interactions(config)
         )
         if period in lag_periods:
             regressors.append(lag_growth_col(config, period))
@@ -972,7 +978,7 @@ def build_variable_registry(
             order=1000,
         )
 
-    for order, interaction in enumerate(get_active_interactions(), start=1500):
+    for order, interaction in enumerate(get_active_interactions(config), start=1500):
         for period in config["periods"]:
             column = build_interaction_column_name(interaction["name"], period)
             if column in registry:
@@ -1224,6 +1230,7 @@ def run_model_variant(
         dependent_standardised = True
 
     fitted = fit_ols(y_model, x_model, config)
+    sample_ids = tuple(filtered_df.loc[estimation_df.index, "nip"].astype(str)) if "nip" in filtered_df else tuple(map(str, estimation_df.index))
 
     return {
         "model": model_name,
@@ -1250,6 +1257,8 @@ def run_model_variant(
         "non_standardised_variables": non_standardised_variables,
         "result": fitted,
         "interaction_centring": estimation_df.attrs.get('interaction_centring', {}),
+        "estimation_sample_ids": sample_ids,
+        "sample_sha256": hashlib.sha256("\n".join(sample_ids).encode()).hexdigest(),
     }
 
 
@@ -1400,7 +1409,7 @@ def build_comparison_row_order(
 
     ordered.extend(
         interaction["display_name"]
-        for interaction in get_active_interactions()
+        for interaction in get_active_interactions(config)
     )
 
     categorical_rows = (
@@ -1603,7 +1612,7 @@ def summarize_top_missing_columns(dropped_rows_df: pd.DataFrame, model_name: str
 
 
 def get_generated_interaction_columns_by_period(config: dict[str, Any]) -> str:
-    active_interactions = get_active_interactions()
+    active_interactions = get_active_interactions(config)
     if not active_interactions:
         return "No interaction terms configured"
     return "; ".join(
@@ -1638,8 +1647,9 @@ def build_diagnostics_table(
                 "period": model_result["period"],
                 "model_family": model_result["model_family"],
                 "covariance_type": model_result["covariance_type"],
+                "sample_sha256": model_result["sample_sha256"],
                 "generated_dependent_variables_by_period": "; ".join(f"{p}: {v}" for p, v in generated_dependents.items()),
-                "interaction_terms_configured": format_list([interaction["name"] for interaction in get_active_interactions()]).replace("No variables", "No interaction terms configured"),
+                "interaction_terms_configured": format_list([interaction["name"] for interaction in get_active_interactions(config)]).replace("No variables", "No interaction terms configured"),
                 "generated_interaction_columns_by_period": get_generated_interaction_columns_by_period(config),
                 "dependent_variable": model_result["dependent_variable"],
                 "generated_regressors_for_period": ", ".join(model_result["generated_regressors"]),
@@ -2308,6 +2318,7 @@ def run_models_for_scenario(
         "models": models,
         "run_log_rows": run_log_rows,
         "models_estimated": len(model_results),
+        "model_results": model_results,
         "models_skipped": models_skipped,
         "warnings": warnings,
     }
@@ -2351,8 +2362,9 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Model periods", ", ".join(config["periods"])),
         ("Scenario definitions", scenario_text),
         ("Model variants", variant_text),
-        ("Interaction centring", "Continuous interaction inputs are mean-centred on each scenario-period complete-case estimation sample before multiplication. Metadata-defined binary inputs stay 0/1. P1 and FULL retain source columns but use their own sample means. Products subsequently follow their standardisation metadata; ordinary regressors retain existing treatment."),
-        ("Interaction interpretation", "Centring reduces avoidable main-effect/product collinearity. Standardised product coefficients can change because the product SD changes, while fitted values, R² and interaction t/p tests stay equivalent. Use conditional/marginal effects. Actual means/SDs and before/after checks: results_interaction_centring.xlsx."),
+        ("OLS specification", "Extended: active INTERACTION_METADATA terms with constituent main effects." if get_active_interactions(config) else "Primary: no interaction terms; additive main effects and the same controls."),
+        *([("Interaction centring", "Continuous inputs subtract their own scenario-period complete-case means; binary metadata retains 0/1. Products subsequently follow standardisation metadata once. P1/FULL use the same source columns but their own samples."),
+           ("Model comparison", "Model_Comparison pairs all variants with additive models on exactly the same firm IDs and transformed outcomes. Delta R-squared = extended minus primary. Main effects in centred interaction models are conditional on the other continuous input's sample mean, not directly the same interpretation as additive coefficients.")] if config.get("include_interactions", True) else []),
         ("Dependent variable logic", "The source growth variables above are used in baseline models, clipped at the configured percentiles in winsor variants, and standardised within the estimation sample when the variant and standardise_dependent settings request it. Logs require strictly positive endpoint sales; otherwise growth is missing."),
         ("2018 role", "2018 is used only to calculate P1 lag growth; it is not an analytical outcome period."),
         ("Lag growth logic", "P1 uses 2018-2019 lag growth; P2 and P3 retain their prior-period lags; FULL has no lag growth."),
@@ -3130,7 +3142,7 @@ def format_workbook(writer: pd.ExcelWriter, workbook_tables: dict[str, pd.DataFr
     tech_header_format = workbook.add_format({"bold": True, "bg_color": "#C65911", "font_color": "white", "text_wrap": True})
     separator_header_format = workbook.add_format({"bold": True, "bg_color": "#808080", "font_color": "white", "text_wrap": True})
     wrap_format = workbook.add_format({"text_wrap": True, "valign": "top"})
-    working_tabs = {"README", "Compare_Main", "Compare_Raw", "Model_Summary_Long"}
+    working_tabs = {"README", "Compare_Main", "Compare_Raw", "Model_Summary_Long", "Model_Comparison"}
     tech_tabs = {"Diagnostics_Long", "Dropped_Rows_Long", "Coefficients_Long", "Variable_Labels", "Run_Log"}
     long_text_columns = {
         "description",
@@ -3164,6 +3176,8 @@ def format_workbook(writer: pd.ExcelWriter, workbook_tables: dict[str, pd.DataFr
             worksheet.autofilter(0, 0, max(len(frame), 1), max(len(frame.columns) - 1, 0))
             if sheet_name in {"Compare_Main", "Compare_Raw"}:
                 worksheet.freeze_panes(1, 2)
+            elif sheet_name == "Model_Comparison":
+                worksheet.freeze_panes(1, 3)
             else:
                 worksheet.freeze_panes(1, 0)
 
@@ -3188,6 +3202,17 @@ def format_workbook(writer: pd.ExcelWriter, workbook_tables: dict[str, pd.DataFr
             for row_idx, label in enumerate(frame["display_name"], start=1):
                 if label in {"Dependent variable", "Dependent variable column"}:
                     worksheet.set_row(row_idx, 45, wrap_format)
+        if sheet_name == "Model_Comparison":
+            decimal = workbook.add_format({"num_format": "0.0000"})
+            p_value = workbook.add_format({"num_format": '[<0.0001]"<0.0001";0.0000'})
+            counts = workbook.add_format({"num_format": "0"})
+            for column_index, name in enumerate(frame.columns):
+                if name.startswith("N_"):
+                    worksheet.set_column(column_index, column_index, 13, counts)
+                elif pd.api.types.is_numeric_dtype(frame[name]) and not pd.api.types.is_bool_dtype(frame[name]):
+                    is_p_value = name.endswith("_p") or "_p_" in name
+                    worksheet.set_column(column_index, column_index, max(18, min(len(name) + 2, 30)), p_value if is_p_value else decimal)
+            worksheet.set_row(0, 32)
 
 
 def write_scenario_workbook(
@@ -3202,6 +3227,7 @@ def write_scenario_workbook(
     variable_labels_df: pd.DataFrame,
     run_log_df: pd.DataFrame,
     config: dict[str, Any],
+    model_comparison: pd.DataFrame | None = None,
 ) -> list[str]:
     workbook_tables: dict[str, pd.DataFrame] = {
         "README": readme_df,
@@ -3215,21 +3241,31 @@ def write_scenario_workbook(
         "Variable_Labels": variable_labels_df,
         "Run_Log": run_log_df,
     }
+    expected_sheets = OUTPUT_SHEETS.copy()
+    if model_comparison is not None:
+        position = expected_sheets.index("AUDIT_AND_TECHNICAL_TABS")
+        expected_sheets.insert(position, "Model_Comparison")
+        workbook_tables["Model_Comparison"] = model_comparison
+        workbook_tables = {name: workbook_tables[name] for name in expected_sheets}
     actual_sheet_names = list(workbook_tables)
-    if actual_sheet_names != OUTPUT_SHEETS:
-        raise ValueError(f"Internal workbook sheet order changed. Expected={OUTPUT_SHEETS}, actual={actual_sheet_names}")
+    if actual_sheet_names != expected_sheets:
+        raise ValueError(f"Internal workbook sheet order changed. Expected={expected_sheets}, actual={actual_sheet_names}")
 
     output_path = Path(config["output_file"])
     # Reader annotations in trailing comparison columns are outside the model
     # output schema. Preserve them by scenario/row label when rebuilding.
     annotations = {}
-    if output_path.exists():
+    annotation_headers = {}
+    annotation_path = Path(config.get("annotation_source", output_path))
+    if annotation_path.exists():
         import openpyxl
-        existing = openpyxl.load_workbook(output_path, read_only=True, data_only=False)
+        existing = openpyxl.load_workbook(annotation_path, read_only=True, data_only=False)
         for sheet_name in ['Compare_Main', 'Compare_Raw']:
             if sheet_name not in existing:
                 continue
             width = len(workbook_tables[sheet_name].columns)
+            header_row = next(existing[sheet_name].iter_rows(min_row=1, max_row=1))
+            annotation_headers[sheet_name] = {i: cell.value for i, cell in enumerate(header_row) if i >= width and cell.value is not None}
             for row in existing[sheet_name].iter_rows(min_row=2):
                 if len(row) > width:
                     values = {i: cell.value for i, cell in enumerate(row) if i >= width and cell.value is not None}
@@ -3241,8 +3277,12 @@ def write_scenario_workbook(
             table.to_excel(writer, sheet_name=sheet_name, index=False)
         format_workbook(writer, workbook_tables)
         note_format = writer.book.add_format({'text_wrap': True, 'valign': 'top'})
+        note_header = writer.book.add_format({'bold': True, 'text_wrap': True, 'bg_color': '#FFF2CC'})
         for sheet_name in ['Compare_Main', 'Compare_Raw']:
             table = workbook_tables[sheet_name]
+            note_columns = {col for (sheet, _, _), values in annotations.items() if sheet == sheet_name for col in values}
+            for column in note_columns:
+                writer.sheets[sheet_name].write(0, column, annotation_headers.get(sheet_name, {}).get(column, 'Reader annotation / historical value (preserved)'), note_header)
             for position, row in enumerate(table.itertuples(index=False), start=1):
                 for column, value in annotations.get((sheet_name, row.scenario, row.display_name), {}).items():
                     writer.sheets[sheet_name].write(position, column, value, note_format)
@@ -3377,8 +3417,12 @@ def print_scenario_validation(
     print("workbook_generated_successfully: True")
 
 
-def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
+def run_period_ols_scenarios(config: dict[str, Any] = CONFIG, write_output: bool = True) -> dict[str, Any]:
     config = dict(config)
+    # A direct single-report call defaults to the primary additive report.
+    # Generic engine helpers retain their historical active-metadata default for
+    # quantile, severe and diagnostic imports; the dual runner sets both explicitly.
+    config.setdefault("include_interactions", False)
     validate_user_config(config)
     config = normalise_config(config)
     validate_config(config)
@@ -3446,7 +3490,7 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
     )
     variable_labels_df = build_variable_labels_table_for_scenarios(scenario_results, coefficients_long_df)
 
-    written_sheets = write_scenario_workbook(
+    workbook_arguments = dict(
         readme_df=build_readme_sheet(config),
         compare_main_df=compare_main_df,
         compare_raw_df=compare_raw_df,
@@ -3459,6 +3503,7 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         run_log_df=run_log_df,
         config=config,
     )
+    written_sheets = write_scenario_workbook(**workbook_arguments) if write_output else OUTPUT_SHEETS.copy()
 
     models_estimated = sum(result["models_estimated"] for result in scenario_results.values())
     models_skipped = sum(result["models_skipped"] for result in scenario_results.values())
@@ -3503,11 +3548,67 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         "warnings": all_warnings,
         "all_original_comparison": all_original_comparison,
         "config_used": config,
+        "scenario_results": scenario_results,
+        "workbook_arguments": workbook_arguments,
     }
 
 
+def build_model_comparison(primary: dict, extended: dict) -> pd.DataFrame:
+    """One paired row per scenario/period/variant, dynamic columns for all terms."""
+    rows = []
+    for scenario in SCENARIOS:
+        reduced = {m["model"]: m for m in primary["scenario_results"][scenario].get("model_results", [])}
+        expanded = {m["model"]: m for m in extended["scenario_results"][scenario].get("model_results", [])}
+        if set(reduced) != set(expanded):
+            raise ValueError(f"Paired model grid differs for {scenario}; no workbooks written.")
+        for name, left in reduced.items():
+            right = expanded[name]
+            if left["estimation_sample_ids"] != right["estimation_sample_ids"]:
+                raise ValueError(f"Paired firm IDs differ for {scenario}/{name}; no workbooks written.")
+            np.testing.assert_allclose(left["result"].model.endog, right["result"].model.endog, rtol=0, atol=0)
+            lf, rf = left["result"], right["result"]
+            row = {"scenario": scenario, "period": left["period"], "variant": name,
+                   "N_without": int(lf.nobs), "N_with": int(rf.nobs),
+                   "identical_observations": True,
+                   "R2_without": lf.rsquared, "R2_with": rf.rsquared,
+                   "adjusted_R2_without": lf.rsquared_adj, "adjusted_R2_with": rf.rsquared_adj,
+                   "delta_R2": rf.rsquared - lf.rsquared}
+            start = get_regressor_period_for_model(left["period"])
+            for label in ["export_ratio", "ln_sales"]:
+                for suffix, fit in [("without", lf), ("with", rf)]:
+                    regressor = get_base_regressor_by_name(extended["config_used"], label)
+                    column = render_regressor_column(regressor, start) if regressor is not None else f"{label}_start_{start}"
+                    row[f"{label}_coef_{suffix}"] = fit.params.get(column, np.nan)
+                    row[f"{label}_p_{suffix}"] = fit.pvalues.get(column, np.nan)
+            for term in get_active_interactions(extended["config_used"]):
+                column = build_interaction_column_name(term["name"], left["period"])
+                row[f"{term['name']}_coef"] = rf.params[column]
+                row[f"{term['name']}_p"] = rf.pvalues[column]
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def run_ols_reports(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
+    """Fit both specifications before publishing either workbook; shared engine."""
+    primary_config = {**config, "include_interactions": False, "analysis_name": "period_ols_scenarios",
+                      "output_file": "results_ols_scenarios.xlsx"}
+    extended_config = {**config, "include_interactions": True, "analysis_name": "period_ols_interactions",
+                       "output_file": "results_ols_interactions.xlsx"}
+    primary = run_period_ols_scenarios(primary_config, write_output=False)
+    extended = run_period_ols_scenarios(extended_config, write_output=False)
+    comparison = build_model_comparison(primary, extended)
+    # The old primary file contained extended models. Carry its annotations into
+    # the extended report on first migration; normal reruns preserve each file's notes.
+    extended_path = Path(extended_config["output_file"])
+    if not extended_path.exists():
+        extended["workbook_arguments"]["config"]["annotation_source"] = primary_config["output_file"]
+    extended["written_sheets"] = write_scenario_workbook(**extended["workbook_arguments"], model_comparison=comparison)
+    primary["written_sheets"] = write_scenario_workbook(**primary["workbook_arguments"])
+    return {"primary": primary, "interactions": extended, "comparison": comparison}
+
+
 if __name__ == "__main__":
-    run_period_ols_scenarios()
+    run_ols_reports()
 
 
 # Technical note

@@ -1,4 +1,4 @@
-# results_ols_scenarios
+# OLS primary and interaction reports
 
 ## Purpose
 
@@ -7,6 +7,13 @@
 It estimates scenario-based OLS models from `data_period_2018-2024.parquet` and exports:
 
 - `results_ols_scenarios.xlsx`
+- `results_ols_interactions.xlsx`
+
+The first workbook contains the **primary additive specification with no interaction terms**. The second contains the **extended specification with the active terms in `INTERACTION_METADATA`**, using the agreed estimation-sample mean-centring. Both contain the full 64-model grid and use the same underlying regression engine, sample definitions, controls, covariance estimator and outcome/predictor preprocessing.
+
+Run `python code_ols_scenarios.py` to produce both reports. `run_ols_reports()` fits both specifications, verifies identical ordered firm IDs and transformed outcomes for every pair, then writes both. A mismatched pair raises an error before either report is written. No additional data-quality exclusions or source changes are introduced.
+
+The lower-level `run_period_ols_scenarios()` defaults to the primary additive report; explicitly set `include_interactions=True` and a separate output path when requesting the extended specification alone. Generic engine helpers keep their previous active-metadata default for imports by quantile, severe and trajectory diagnostics. Shared `code_config.py` is unchanged; those analyses are not rerun or modified by the report split.
 
 Current script roles:
 
@@ -115,7 +122,7 @@ Categorical controls:
 - reference category: `production`
 - scripts fail clearly if the column or reference category is missing
 
-Interaction:
+Interaction (extended workbook only):
 
 - `export_ratio x ln_sales`
 - generated as `export_ratio_x_ln_sales_start_P1`, `export_ratio_x_ln_sales_start_P2`, and `export_ratio_x_ln_sales_start_P3`
@@ -159,7 +166,7 @@ Categorical dummies, ownership dummy, and intercept are excluded from standardis
 
 ## Workbook Structure
 
-`results_ols_scenarios.xlsx` contains:
+Both workbooks retain these specification-specific working and technical sheets:
 
 - `README`
 - `Compare_Main`
@@ -173,6 +180,16 @@ Categorical dummies, ownership dummy, and intercept are excluded from standardis
 - `Run_Log`
 
 Working tabs come first. Audit and technical tabs follow after `AUDIT_AND_TECHNICAL_TABS`.
+
+The interaction report additionally contains `Model_Comparison` immediately before the technical separator. The primary report contains no generated interaction rows, coefficient records, variable labels or missingness references. Existing unrelated trajectory/correlation/data-quality outputs stay in their separate workbooks.
+
+Trailing researcher notes and historical values are preserved by scenario and display label. On first migration, all original annotations are carried into the interaction workbook; notes on retained rows also remain in the primary workbook. Subsequent reruns preserve each workbook's own annotations. Unlabelled historical columns receive a clear reader-annotation heading, and existing researcher headings are preserved. These columns are historical/reader input, not new coefficient estimates, and should be reviewed when interpretations refer to the earlier interaction specification.
+
+### Model_Comparison (interaction workbook only)
+
+One row per scenario, period and variant (64 rows). It contains N without/with interactions, an identical-observations indicator, export-ratio and log-sales coefficients and p-values for both specifications, all active interaction coefficients and p-values, R² and adjusted R² for both specifications, and `delta_R2 = R2_with - R2_without`. Interaction columns are generated dynamically from metadata, including multiple active terms. Observation fingerprints are retained in `Diagnostics_Long` for both reports.
+
+Variants are explicit: raw coefficients retain original regressor units; standardised variants retain the established ddof=0 scaling. The matched sample gives identical growth clipping limits and transformed outcomes in each pair. Coefficient changes are conditional associations; the extended main effects are evaluated at the other continuous input's sample mean, while primary coefficients describe additive associations. ΔR² measures the joint in-sample fit gain from all included interactions, not a causal effect or an automatic significance test. Adjusted R² may decrease even when R² increases.
 
 The workbook is formatted for research use:
 
@@ -232,7 +249,7 @@ diagnostics are reported separately in
 results separate from pre-modelling diagnostics while preserving the same shared
 scenario definitions and exact model-variable logic.
 
-`code_ols_scenarios.py` writes only the regression workbook.
+`code_ols_scenarios.py` writes only the two OLS regression workbooks.
 `results_diagnostics_trajectories.xlsx` is generated independently
 by `code_diagnostics_trajectories.py` using the shared definitions in `code_config.py`.
 
@@ -333,11 +350,21 @@ Human-facing tabs use `display_name` or `variable_label` as the main label.
 
 Raw variable names are retained in technical tabs for reproducibility.
 
-The workbook is designed so that interpretation can start from `README`, `Compare_Main`, `Compare_Raw`, `Descriptive_Stats`, and `Correlation_Long`, while auditability is preserved in the technical tabs.
+Interpretation starts from `README`, `Compare_Main`, `Compare_Raw` and, for the extended specification, `Model_Comparison`. Descriptive/correlation outputs remain separate; auditability is preserved in each report's technical tabs.
 
 ## Last Updated For
 
 - Script: `code_ols_scenarios.py`
-- Output file: `results_ols_scenarios.xlsx`
-- Main change covered: interaction renamed to `export_ratio_x_ln_sales`; interaction columns now follow starting-point regressor periods, with P1 and FULL sharing `export_ratio_x_ln_sales_start_P1`
-- Date: 2026-07-01
+- Output files: `results_ols_scenarios.xlsx`, `results_ols_interactions.xlsx`
+- Main change: separate primary additive and extended centred-interaction reports, with identical observations and preprocessing for paired models.
+- Date: 2026-10-08
+
+## Reproducibility checks
+
+Run `python code_check_ols_reporting.py` after creating both reports. Tests reproduce all 64 primary models by independently fitting the reduced design obtained by dropping interaction columns from the corresponding centred design; compare coefficients, p-values, covariance, predictions and R²; verify saved estimates, full grids, firm IDs, outcome transformations, model comparison, sheet order and HC3 estimator routing; and assert source/other outputs remain unchanged. Existing seven generic centring tests run with `python -m unittest code_check_interaction_centring.CentringTests` without overwriting the centring diagnostics workbook.
+
+During migration, `GRIP_OLS_LEGACY_WORKBOOK=/tmp/grip_ols_pre_split.xlsx python code_check_ols_reporting.py` additionally compares every extended coefficient, SE, t-statistic, p-value, confidence interval, N and fit statistic against the preserved pre-split workbook and checks annotation preservation. This optional external snapshot is not required for normal reproducibility; keep a snapshot before later methodological changes if historical equivalence must be rechecked.
+
+Validation on 8 October 2026: **10 reporting tests and seven generic centring tests passed**, including the migration snapshot comparisons. Each workbook contains 64 estimated models with zero skipped models, and all 64 pairs have exactly the same ordered NIPs and transformed outcomes. All 36 nonempty trailing reader/historical values from the previous workbook are preserved in the interaction workbook; notes on the removed interaction row are not copied into a nonexistent primary row. All 18 unrelated dataset/workbook files checked retain their pre-change SHA-256 hashes; shared configuration/exclusion definitions are unchanged. The technical-sheet structure, filters, frozen panes and model-comparison arithmetic were verified and representative working/comparison ranges visually inspected. No quantile, severe, trajectory, centring-diagnostics or data-quality output was regenerated.
+
+The observed ΔR² range across the full model grid is 0.00001486–0.01072619. For RANK2019 `winsor_std`, P1/P2/P3/FULL gains are approximately 0.001480 / 0.000394 / 0.002107 / 0.001667. These are absolute R² differences, not percentage growth effects. Comparison coefficients/fit statistics display four decimal places; p-values below 0.0001 display `<0.0001`, while their full numeric precision is retained.

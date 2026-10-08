@@ -6,6 +6,8 @@ Run `python3 code_quantile.py` from this directory. The input is `data_period_20
 
 The runner reads `code_config.PERIOD_MODEL_SETTINGS`, the same control panel used by `code_ols_scenarios.py`. It reuses the OLS model, interaction, variable metadata, categorical-level, and design-matrix builders. Changes to the shared model settings therefore apply to both analyses. The quantile runner currently estimates the OLS `winsor_std` specification at Q10, Q50, and Q90; it does not estimate OLS's three other variants.
 
+Following the OLS reporting split, this configured interaction specification corresponds to `results_ols_interactions.xlsx`; primary `results_ols_scenarios.xlsx` is additive. The split does not change quantile settings or estimates, and no quantile rerun is part of that reporting change.
+
 The shared `code_config.MANUAL_EXCLUSIONS` removes the same six specified firms as OLS, by verified NIP or exact name (outer whitespace ignored), before analytical filtering, winsorisation and standardisation. README rows identify every firm, reason code and description, and distinguish newly removed firms from those already absent upstream. No additional predictor clipping was introduced. See `documentation_manual_exclusions.md` for rules and post-exclusion sample validation.
 
 The dependent variable is **nominal annualised log sales growth**, based on current-price `sales`. It is measured in log points per year, not the log sales level or CAGR. Its source formulas are `(ln(sales_2020) - ln(sales_2019)) / 1` for P1, `(ln(sales_2022) - ln(sales_2020)) / 2` for P2, `(ln(sales_2024) - ln(sales_2022)) / 2` for P3, and `(ln(sales_2024) - ln(sales_2019)) / 5` for FULL.
