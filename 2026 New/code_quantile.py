@@ -232,6 +232,8 @@ def scenario_sample_name(scenario_name: str) -> str:
 
 
 def sample_filter_text(config: dict[str, Any], scenario_name: str) -> str:
+    if config.get('_require_common_sample'):
+        return f'COMMON_{scenario_name}: centrally approved company IDs'
     complete = f"{complete_flag_col(config)} == 1"
     if scenario_name in SHARED_SAMPLE_SCENARIOS:
         sample_name = SHARED_SAMPLE_SCENARIOS[scenario_name]
@@ -249,9 +251,7 @@ def load_input_data(config: dict[str, Any]) -> pd.DataFrame:
     path = Path(config["input_file"])
     if not path.exists():
         raise FileNotFoundError(f"Input file not found: {path}")
-    data, audit = apply_manual_exclusions(pd.read_parquet(path))
-    config["manual_exclusion_audit"] = audit
-    return data
+    return ols_spec.load_input_data(config)
 
 
 def apply_scenario_filter(df: pd.DataFrame, scenario_name: str, filter_query: str | None) -> pd.DataFrame:
@@ -264,6 +264,9 @@ def apply_scenario_filter(df: pd.DataFrame, scenario_name: str, filter_query: st
 
 
 def apply_complete_filter(df: pd.DataFrame, config: dict[str, Any], scenario_name: str) -> pd.DataFrame:
+    if config.get('_require_common_sample'):
+        from code_common_samples import select
+        return select(df,scenario_name)
     sample_name = scenario_sample_name(scenario_name)
     if sample_name in SAMPLE_ORDER:
         return df.loc[build_sample_mask(df, sample_name, complete_flag_col(config))].copy()
@@ -377,6 +380,8 @@ def fit_quantile_model(
     numeric_columns = [dependent, *regressors]
     working[numeric_columns] = working[numeric_columns].apply(safe_numeric)
     estimation_df = working.dropna().copy()
+    if config.get('_require_common_sample') and len(estimation_df) != len(filtered_df):
+        raise RuntimeError('Quantile cannot drop firms from the approved common sample.')
     rows_dropped = len(filtered_df) - len(estimation_df)
     run_log_rows = []
 
@@ -494,6 +499,9 @@ def fit_quantile_model(
         ],
         columns=SUMMARY_COLUMNS,
     )
+    from code_common_samples import verify
+    sample_metadata = verify(filtered_df, filtered_df.loc[estimation_df.index,'nip'], model_name, 'quantile', period)
+    for k,v in sample_metadata.items(): summary[k] = v
     diagnostics = pd.DataFrame(
         [
             diagnostic_row(
@@ -657,6 +665,9 @@ def build_readme(config: dict[str, Any]) -> pd.DataFrame:
         ),
     ]
     rows.extend(manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])))
+    from code_common_samples import metadata_note
+    rows = [r for r in rows if not r[0].startswith('Manual exclusion')]
+    rows.append(('Common sample policy',metadata_note()))
     return pd.DataFrame(rows, columns=["item", "description"])
 
 
@@ -825,6 +836,13 @@ def validate_sample_consistency(
     scenario_frames: dict[str, pd.DataFrame],
     config: dict[str, Any],
 ) -> tuple[bool, list[str], dict[str, dict[str, int]]]:
+    if config.get('_require_common_sample'):
+        from code_common_samples import current
+        counts = {sample:{'rows':len(current().memberships[scenario]),'firms':len(current().memberships[scenario])} for scenario,sample in SHARED_SAMPLE_SCENARIOS.items()}
+        for scenario, frame in scenario_frames.items():
+            if set(frame.nip.astype(str)) != current().memberships[scenario]:
+                raise RuntimeError('Quantile scenario differs from common sample.')
+        return True, [], counts
     expected_counts = build_shared_sample_counts(input_df, complete_flag_col(config))
     warnings_out = []
     for scenario_name in SCENARIO_ORDER:
@@ -1021,7 +1039,7 @@ def run_quantile_regression(config: dict[str, Any] = CONFIG) -> dict[str, Any]:
         if any(not frame.empty for frame in summary_frames)
         else pd.DataFrame(columns=SUMMARY_COLUMNS)
     )
-    summary = sort_by_model_keys(summary).loc[:, SUMMARY_COLUMNS] if not summary.empty else summary
+    summary = sort_by_model_keys(summary) if not summary.empty else summary
     diagnostics = (
         pd.concat([frame for frame in diagnostic_frames if not frame.empty], ignore_index=True)
         if any(not frame.empty for frame in diagnostic_frames)

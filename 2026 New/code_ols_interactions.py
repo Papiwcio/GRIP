@@ -73,7 +73,7 @@ def fit_specification(specification, config=engine.CONFIG):
 def paired_reduced_model(report, scenario, model):
     """Refit without the product, keeping its constituent main effects and exact IDs."""
     details = report["scenarios"][scenario]
-    c = {**report["config"], "include_interactions": False}
+    c = {**report["config"], "include_interactions": False, "analysis_name": report["config"]["analysis_name"] + "_matched_reduced_comparator"}
     period = model["period"]
     products = engine.get_interaction_column_names(report["config"])
     spec = {**report["models"][period], "regressors": [x for x in report["models"][period]["regressors"] if x not in products]}
@@ -203,8 +203,20 @@ def readme(export, profit):
 def write_compact_workbook(export, profit, destination=OUTPUT):
     # Complete all comparisons/identification checks before publishing.
     summary = summary_table(export, profit)
+    from code_common_samples import current, fingerprint, metadata_note
+    for index, row in summary.iterrows():
+        population = 'MANUFACTURING' if row['sample'] == 'ALL_MANUFACTURING' else row['sample']
+        members = current().memberships[population]
+        summary.loc[index,'population_id'] = population
+        summary.loc[index,'sample_id'] = f'COMMON_{population}'
+        summary.loc[index,'specification_id'] = row['interaction_specification']
+        summary.loc[index,'model_id'] = f"{row['period']}_{row['model_specification']}"
+        summary.loc[index,'unique_companies'] = len(members)
+        summary.loc[index,'sample_sha256'] = fingerprint(members)
     tables = {"00_README": readme(export, profit), "01_EXPORT_SIZE": regression_table(export),
               "02_PROFIT_MANUFACTURING": regression_table(profit), "03_INTERACTION_SUMMARY": summary}
+    tables['00_README'] = tables['00_README'].loc[~tables['00_README'].item.str.startswith('Manual exclusion')].copy()
+    tables['00_README'].loc[len(tables['00_README'])] = ['Common sample policy',metadata_note()]
     if list(tables) != SHEETS or any(t.empty for t in tables.values()):
         raise ValueError("The four supplementary sheets must all contain results.")
     destination = Path(destination)
@@ -234,6 +246,7 @@ def write_compact_workbook(export, profit, destination=OUTPUT):
                 for row,text in enumerate(table.description,1):sheet.set_row(row,15 * max(2,int(np.ceil(len(text)/95))))
             if name==SHEETS[3]:
                 sheet.set_column(table.columns.get_loc('N'),table.columns.get_loc('N'),10,workbook.add_format({'num_format':'0'}))
+                if 'unique_companies' in table: sheet.set_column(table.columns.get_loc('unique_companies'),table.columns.get_loc('unique_companies'),18,workbook.add_format({'num_format':'0'}))
         writer.book.set_properties({'title':'GRIP supplementary OLS interactions'})
     temporary.replace(destination)
     return tables

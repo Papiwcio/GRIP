@@ -212,4 +212,5 @@ def refresh(destination="results_ols_scenarios.xlsx"):
 
 
 if __name__ == "__main__":
-    refresh()
+    from code_run_quantitative_pipeline import main as unified_main
+    unified_main(["--quality-only"])

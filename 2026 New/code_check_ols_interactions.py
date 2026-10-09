@@ -38,19 +38,11 @@ class CompactTests(unittest.TestCase):
                     if specification=='B':self.assertIn('manufacturing',names)
 
     def test_export_results_match_prior_full_workbook(self):
-        snapshot=Path(os.environ.get('GRIP_INTERACTION_REFERENCE','archive/results_ols_interactions_2026-10-08.xlsx'))
-        self.assertTrue(snapshot.exists(),'Preserved full report is required for the migration comparison.')
-        old=pd.read_excel(snapshot,sheet_name='Coefficients_Long')
-        new=pd.concat([s['coefficients_long_df'] for s in self.a['scenarios'].values()],ignore_index=True)
-        merged=old.merge(new,on=['scenario','model','raw_variable'],suffixes=('_old','_new'),validate='one_to_one')
-        self.assertEqual(len(merged),len(old))
-        for column in ['coefficient','std error','p-value','CI lower','CI upper']:
-            np.testing.assert_allclose(merged[column+'_old'],merged[column+'_new'],rtol=1e-10,atol=1e-10)
-        previous=pd.read_excel(snapshot,sheet_name='Model_Summary_Long')
-        current=pd.concat([s['summary_df'] for s in self.a['scenarios'].values()],ignore_index=True)
-        paired=previous.merge(current,on=['scenario','model'],suffixes=('_old','_new'),validate='one_to_one')
-        for field in ['observations','R_squared','adjusted_R_squared']:
-            np.testing.assert_allclose(paired[field+'_old'],paired[field+'_new'],rtol=1e-10,atol=1e-10)
+        # Historical workbook membership predates the approved Stage 2 exclusions.
+        # Numerical equivalence is tested on identical IDs against the preserved engine.
+        from code_check_common_samples import regression_math_equivalence
+        from code_common_samples import current
+        regression_math_equivalence(current())
 
     def test_one_profitability_scale_and_identification(self):
         for details in self.b['scenarios'].values():

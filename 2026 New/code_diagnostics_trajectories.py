@@ -74,7 +74,6 @@ OUTPUT_SHEETS = [
     "00_README_STRUCTURE",
     "01_VARIABLES",
     "02_SAMPLE_SUMMARY",
-    "03_MISSINGNESS",
     "04_WINSOR_IMPACT",
     "10_TRAJECTORY_SUMMARY",
     "11_TRAJECTORY_BY_SCENARIO",
@@ -100,7 +99,6 @@ OUTPUT_SHEETS = [
 DIAGNOSTIC_SHEET_NAMES = {
     "00_README_STRUCTURE",
     "01_VARIABLES",
-    "03_MISSINGNESS",
     "04_WINSOR_IMPACT",
     "20_CORR_MAIN_BASELINE",
     "21_CORR_MAIN_WINSOR",
@@ -607,7 +605,8 @@ def build_scenario_analysis_inputs(
     input_path = Path(config["input_file"])
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
-    input_df, config["manual_exclusion_audit"] = apply_manual_exclusions(pd.read_parquet(input_path))
+    from code_ols_scenarios import load_input_data as shared_load
+    input_df = shared_load(config)
     validate_input_columns(input_df, config, models)
 
     scenario_definitions = get_scenario_definitions()
@@ -836,12 +835,8 @@ def resolve_performance_band_columns(df: pd.DataFrame, trajectory_family: str) -
 
 
 def build_samples(df: pd.DataFrame, columns: dict[str, Any]) -> dict[str, pd.DataFrame]:
-    samples = {}
-    for scenario_name in get_scenario_definitions():
-        samples[scenario_name] = df.loc[
-            build_scenario_mask(df, scenario_name, columns["complete_flag"])
-        ].copy()
-    return samples
+    from code_common_samples import select
+    return {scenario:select(df,scenario) for scenario in SCENARIO_ORDER}
 
 
 def period_suffixes() -> list[str]:
@@ -1485,7 +1480,8 @@ def build_performance_band_trajectory(
 
 
 def build_firm_trajectories(df: pd.DataFrame, columns: dict[str, Any]) -> pd.DataFrame:
-    output = df.loc[df[columns["complete_flag"]] == 1].copy()
+    from code_common_samples import select
+    output = select(df,'ALL')
     output[OWNERSHIP_TEMP_COLUMN] = build_ownership_labels(output)
     rename_map = {
         columns["growth_columns"][0]: "growth_P1",
@@ -1687,13 +1683,19 @@ def write_sheet(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame, forma
 
 
 def write_workbook(output_path: Path, tables: dict[str, pd.DataFrame]) -> list[str]:
-    actual_sheets = list(tables)
+    from code_common_samples import metadata_note
+    readme = tables['00_README_STRUCTURE']
+    readme = readme.loc[~readme.block.eq('manual exclusions')].copy()
+    readme.loc[len(readme)] = ['method note','all','grey','Common sample policy','Exact regression population',metadata_note()]
+    tables['00_README_STRUCTURE'] = readme
+    actual_sheets = [name for name in tables if name != "03_MISSINGNESS"]
     if actual_sheets != OUTPUT_SHEETS:
         raise ValueError(f"Internal sheet order changed. Expected={OUTPUT_SHEETS}, actual={actual_sheets}")
 
     with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
         formats = create_formats(writer.book)
-        for sheet_name, table in tables.items():
+        for sheet_name in actual_sheets:
+            table=tables[sheet_name]
             write_sheet(writer, sheet_name, table, formats)
     validate_written_workbook(output_path)
     return actual_sheets
@@ -1930,6 +1932,9 @@ def run_trajectory_analysis(
     }
 
     samples = build_samples(df, columns)
+    from code_common_samples import verify
+    for population, frame in samples.items():
+        verify(frame, frame.nip.astype(str), 'TRAJECTORIES', 'trajectory_diagnostics', 'ALL_PERIODS')
     profile_variables_included, profile_variables_skipped = available_profile_variables(df)
     if profile_variables_skipped:
         print(f"Profile variables missing and skipped: {profile_variables_skipped}")
@@ -1946,7 +1951,6 @@ def run_trajectory_analysis(
         "00_README_STRUCTURE": diagnostics["00_README_STRUCTURE"],
         "01_VARIABLES": diagnostics["01_VARIABLES"],
         "02_SAMPLE_SUMMARY": transpose_sample_overview(build_sample_overview(samples, columns)),
-        "03_MISSINGNESS": diagnostics["03_MISSINGNESS"],
         "04_WINSOR_IMPACT": diagnostics["04_WINSOR_IMPACT"],
         "10_TRAJECTORY_SUMMARY": build_trajectory_distribution(samples, columns),
         "11_TRAJECTORY_BY_SCENARIO": build_growth_by_trajectory(samples, columns),

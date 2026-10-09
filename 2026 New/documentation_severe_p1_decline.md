@@ -1,3 +1,9 @@
+# Stage 2 common-sample update
+
+The additive severe-decline analysis is included in the unified pipeline. RANK2019 uses 1,748 firms and its manufacturing subset 754, identical to corresponding OLS, interaction, quantile and trajectory populations. P1/P2/P3 retain their existing outcomes, predictors, lags, threshold definitions and Firth/OLS estimators. Primary and threshold model summaries now retain company fingerprints and sample/model metadata. Complete-case loss after central selection is a critical error, not a new sample. Exclusion details are reported centrally. Any numerical examples below from earlier runs are historical; current estimates are in `results_severe_p1_decline_analysis.xlsx`.
+
+See [GRIP quantitative workflow](GRIP_quantitative_workflow.md).
+
 # Severe P1 decline supplementary analysis
 
 ## Scope and reproduction

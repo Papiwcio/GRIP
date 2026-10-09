@@ -1,3 +1,9 @@
+# Stage 2 current diagnostics scope
+
+All current trajectories, manufacturing summaries, regression descriptives and correlations describe the centrally approved common samples: ALL 2,332; manufacturing 949; RANK2019 1,748; ranking manufacturing 754. They are no longer broad pre-complete-case population descriptions. Historical broad-universe outputs are archived. Correlation rows retain sorted-ID fingerprints and sample metadata. The duplicate `03_MISSINGNESS` output is removed; source and eligibility missingness now reside in the central quality workbook. Statistical diagnostics, winsor-impact tables and existing trajectory definitions remain available.
+
+The older methodology narrative below documents the inherited calculations; statements about pre-Stage-2 sample scope/missingness are historical and superseded by [GRIP quantitative workflow](GRIP_quantitative_workflow.md).
+
 # results_diagnostics_trajectories
 
 ## Purpose

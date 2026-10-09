@@ -242,6 +242,9 @@ class AuditTests(unittest.TestCase):
         from openpyxl import load_workbook
         file = audit.ROOT / "results_data_quality_audit.xlsx"
         metadata = audit.ROOT / "results_data_quality_audit_metadata.json"
+        if not file.exists():
+            file = audit.ROOT / 'archive' / 'results_data_quality_audit_2026-10-09.xlsx'
+            metadata = audit.ROOT / 'archive' / 'results_data_quality_audit_metadata_2026-10-09.json'
         if not file.exists() or not metadata.exists():
             self.skipTest("Run the audit first to validate the saved workbook.")
         expected = json.loads(metadata.read_text())

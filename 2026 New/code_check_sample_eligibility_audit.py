@@ -94,4 +94,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    from code_common_samples import current, ROOT
+    from code_check_common_samples import validate_context, validate_workbooks
+    context=current();validate_context(context);validate_workbooks(ROOT,context)

@@ -1,3 +1,11 @@
+# Stage 2 consolidation
+
+Routine data-quality and sample reporting is now `results_data_quality_and_samples.xlsx`; the two original audit workbooks and the original metadata are preserved in archive snapshots dated 9 October 2026. `audit_frames` remains an independent calculation function. Both legacy audit command entry points now refresh the consolidated audit for an unchanged approved sample (`--quality-only`) instead of recreating obsolete production workbooks. Proposed changes use `code_run_quantitative_pipeline.py --audit-only`.
+
+The full-scale exporter continues the established native large-table export fallback after the original artifact-tool memory failures. Bounded artifact-tool renders verify presentation; no findings are truncated. Human decisions in `data_quality_audit_decisions.csv` remain preserved and informative. Source-year evidence is deduplicated in the central report.
+
+The remaining text describes the historical reporting-only audit and its preserved rules. Stage 2 additionally adopts export [0,1] and model-relevant validity/eligibility constraints. See [GRIP quantitative workflow](GRIP_quantitative_workflow.md) for current automation, approved membership, filenames and reproduction commands.
+
 # GRIP independent data-quality audit
 
 Implementation date: 8 October 2026. The original design is preserved in `documentation_data_quality_audit_specification.md`; this document describes the implemented reporting-only workflow and approved departures.

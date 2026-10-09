@@ -100,7 +100,6 @@ OUTPUT_SHEETS = [
     "Model_Summary_Long",
     "AUDIT_AND_TECHNICAL_TABS",
     "Diagnostics_Long",
-    "Dropped_Rows_Long",
     "Coefficients_Long",
     "Variable_Labels",
     "Run_Log",
@@ -200,6 +199,10 @@ def trajectory_col(config: dict[str, Any]) -> str:
 
 
 def get_sample_filter(config: dict[str, Any]) -> str:
+    if config.get('_require_common_sample'):
+        from code_common_samples import ALIASES
+        population=ALIASES.get(config['sample_name'],config['sample_name'])
+        return f'COMMON_{population}: centrally approved company IDs'
     return f"{trajectory_col(config)} == 1 and {config['base_sample_filter']}"
 
 
@@ -867,6 +870,10 @@ def load_input_data(config: dict[str, Any]) -> pd.DataFrame:
         raise FileNotFoundError(f"Input file not found: {input_path}. Change CONFIG['input_file'].")
     data, audit = apply_manual_exclusions(pd.read_parquet(input_path))
     config["manual_exclusion_audit"] = audit
+    from code_common_samples import current, validate_request
+    current()  # Fail before estimation for an unapproved specification/data change.
+    validate_request(config)
+    config['_require_common_sample'] = True
     return data
 
 
@@ -898,6 +905,9 @@ def validate_input_columns(df: pd.DataFrame, config: dict[str, Any], models: dic
 
 
 def apply_sample_filter(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
+    if config.get('_require_common_sample'):
+        from code_common_samples import select
+        return select(df, config['sample_name'])
     sample_filter = get_sample_filter(config)
     if uses_shared_sample_filter(config):
         filtered = df.loc[build_sample_mask(df, config["sample_name"], trajectory_col(config))].copy()
@@ -1263,8 +1273,11 @@ def run_model_variant(
 
     fitted = fit_ols(y_model, x_model, config)
     sample_ids = tuple(filtered_df.loc[estimation_df.index, "nip"].astype(str)) if "nip" in filtered_df else tuple(map(str, estimation_df.index))
+    from code_common_samples import verify
+    sample_metadata = verify(filtered_df, sample_ids, model_name, config['analysis_name'], period)
 
     return {
+        **sample_metadata,
         "model": model_name,
         "period": period,
         "model_family": variant["model_family"],
@@ -1290,13 +1303,14 @@ def run_model_variant(
         "result": fitted,
         "interaction_centring": estimation_df.attrs.get('interaction_centring', {}),
         "estimation_sample_ids": sample_ids,
-        "sample_sha256": hashlib.sha256("\n".join(sample_ids).encode()).hexdigest(),
+        "sample_sha256": sample_metadata.get("sample_sha256", hashlib.sha256("\n".join(sample_ids).encode()).hexdigest()),
     }
 
 
 def extract_model_summary(model_result: dict[str, Any]) -> dict[str, Any]:
     fitted = model_result["result"]
     return {
+        **{k:model_result[k] for k in ['population_id','sample_id','specification_id','model_id','unique_companies','sample_sha256'] if k in model_result},
         "model": model_result["model"],
         "period": model_result["period"],
         "model_family": model_result["model_family"],
@@ -2048,6 +2062,14 @@ def validate_sample_consistency(
     scenario_results: dict[str, dict[str, Any]],
     config: dict[str, Any],
 ) -> tuple[bool, list[str], dict[str, dict[str, int]]]:
+    if config.get('_require_common_sample'):
+        from code_common_samples import current
+        counts = {sample:{'rows':len(current().memberships[scenario]),'firms':len(current().memberships[scenario])} for scenario,sample in SHARED_SAMPLE_SCENARIOS.items()}
+        for scenario, result in scenario_results.items():
+            frame = result['filtered_df']
+            if set(frame.nip.astype(str)) != current().memberships[scenario]:
+                raise RuntimeError('Scenario ID set differs from approved common sample.')
+        return True, [], counts
     expected_counts = build_shared_sample_counts(input_df, trajectory_col(config))
     warnings = []
     for scenario_name, sample_name in SHARED_SAMPLE_SCENARIOS.items():
@@ -2464,6 +2486,10 @@ def build_readme_sheet(config: dict[str, Any]) -> pd.DataFrame:
         ("Dropped-firm audit", "Dropped_Rows_Long covers the original period input. exclusion_stage records the first removal: manual_exclusion, scenario_not_eligible, incomplete_trajectory, sample_filter, or model_complete_case. Pre-model rows occur once per firm/scenario, with empty model/period and scope='All models in scenario'; model_complete_case rows retain each model/variant. Scenario non-membership is sample scope, not a quality failure. For each model: source firms = pre-model exclusions + model-specific missing-value exclusions + estimated N. Manual rules already absent upstream remain documented below."),
         *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
     ]
+    if config.get('_require_common_sample'):
+        from code_common_samples import metadata_note
+        rows = [r for r in rows if not r[0].startswith('Manual exclusion') and r[0] != 'Dropped-firm audit']
+        rows.append(('Common sample policy', metadata_note()))
     return pd.DataFrame(rows, columns=["item", "description"])
 
 
@@ -2471,7 +2497,7 @@ def build_separator_sheet() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "message": [
-                "The tabs after this point contain technical diagnostics, dropped-row audit trails, full coefficient outputs, variable dictionaries, and run logs for reproducibility."
+                "The following tabs retain statistical diagnostics, numerical coefficients, variable definitions and run logs. Company exclusions and source-quality evidence are consolidated in results_data_quality_and_samples.xlsx."
             ]
         }
     )
@@ -2615,6 +2641,9 @@ def get_estimation_sample(
     working[dependent] = pd.to_numeric(working[dependent], errors="coerce")
     working[numeric_regressors] = working[numeric_regressors].apply(pd.to_numeric, errors="coerce")
     complete = working.dropna().copy()
+    if filtered_df.attrs.get('common_population') and len(complete) != len(filtered_df):
+        raise RuntimeError('Central common sample has a missing model input; no silent firm drops allowed.')
+    complete.attrs.update(filtered_df.attrs)
     registry = build_variable_registry(config, build_models(config))
     return centre_interaction_columns(complete, model_spec['regressors'], registry, config)
 
@@ -2869,6 +2898,8 @@ def build_correlation_long(
         scenario_config["base_sample_filter"] = "True"
         for period, model_spec in models.items():
             estimation_df = get_estimation_sample(filtered_df, scenario_config, model_spec)
+            from code_common_samples import verify
+            sample_metadata = verify(filtered_df, filtered_df.loc[estimation_df.index,'nip'], f'CORRELATION_{period}', 'correlations', period)
             variables = numeric_variables_for_correlations(model_spec, variable_registry)
             for variant_name in CORRELATION_VARIANTS:
                 variant_df, effective_names = correlation_variant_frame(
@@ -2898,6 +2929,7 @@ def build_correlation_long(
                             p_value = pd.NA
                         rows.append(
                             {
+                                **sample_metadata,
                                 "scenario": scenario_name,
                                 "period": period,
                                 "variant": variant_name,
@@ -3327,7 +3359,6 @@ def write_scenario_workbook(
         "Model_Summary_Long": summary_long_df,
         "AUDIT_AND_TECHNICAL_TABS": separator_df,
         "Diagnostics_Long": diagnostics_long_df,
-        "Dropped_Rows_Long": dropped_rows_long_df,
         "Coefficients_Long": coefficients_long_df,
         "Variable_Labels": variable_labels_df,
         "Run_Log": run_log_df,
@@ -3552,7 +3583,7 @@ def run_period_ols_scenarios(config: dict[str, Any] = CONFIG, write_output: bool
     # Re-read the unchanged source solely for the exclusion audit: the fitting
     # loader has already removed manual exclusions, so its input is incomplete
     # as a record of all original firms. This frame never reaches estimation.
-    pre_model_exclusions = build_pre_model_exclusion_table(pd.read_parquet(config["input_file"]), scenario_results, config)
+    pre_model_exclusions = pd.DataFrame() if config.get('_require_common_sample') else build_pre_model_exclusion_table(pd.read_parquet(config["input_file"]), scenario_results, config)
     if not pre_model_exclusions.empty:
         dropped_row_frames.insert(0, pre_model_exclusions)
 

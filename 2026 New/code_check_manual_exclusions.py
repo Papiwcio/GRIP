@@ -62,7 +62,8 @@ def check_manual_exclusions():
     diagnostic_samples = diagnostics.build_samples(prepared, family)
     for scenario, frame in diagnostic_samples.items():
         assert not shared.manual_exclusion_mask(frame).any(), scenario
-        pd.testing.assert_index_equal(frame.index, prepared.loc[shared.build_scenario_mask(prepared, scenario, family['complete_flag'])].index)
+        from code_common_samples import current
+        assert set(frame.nip.astype(str)) == current().memberships[scenario]
     for sample in ['Rank2019', 'Rank2019_Manufacturing']:
         mask = shared.build_sample_mask(source, sample, ols.trajectory_col(config))
         assert not mask[excluded].any(), sample
@@ -71,48 +72,16 @@ def check_manual_exclusions():
 
 
 def check_saved_outputs():
-    """Confirm current saved results, README audits and model sample counts."""
-    config = ols.normalise_config(ols.CONFIG)
-    models = ols.build_models(config)
-    source = pd.read_parquet(config['input_file'])
-    source = ols.add_interaction_columns(source, config, models)
-    ols_summary = pd.read_excel('results_ols_scenarios.xlsx', sheet_name='Model_Summary_Long')
-    quantile_summary = pd.read_excel('results_quantile.xlsx', sheet_name='Model_Summary_Long')
-    diagnostic_summary = pd.read_excel('results_diagnostics_trajectories.xlsx', sheet_name='30_SCENARIO_SUMMARY').set_index('scenario')
-    assert len(ols_summary) == 64 and len(quantile_summary) == 48
-    assert quantile_summary.converged.eq('OK').all()
-    for scenario in shared.get_scenario_definitions():
-        frame = source.loc[shared.build_scenario_mask(source, scenario, ols.trajectory_col(config))]
-        assert diagnostic_summary.loc[scenario, 'observations'] == len(frame)
-        for period, model in models.items():
-            n = len(ols.get_estimation_sample(frame, config, model))
-            for summary in [ols_summary, quantile_summary]:
-                rows = summary.loc[summary.scenario.eq(scenario) & summary.period.eq(period)]
-                assert not rows.empty and rows.observations.eq(n).all(), (scenario, period)
-    firm_output = pd.read_excel('results_diagnostics_trajectories.xlsx', sheet_name='92_FIRM_TRAJECTORIES', dtype={'nip': str})
-    assert not shared.manual_exclusion_mask(firm_output).any()
-    files = [
-        ('results_ols_scenarios.xlsx', 'README', ols.OUTPUT_SHEETS),
-        ('results_quantile.xlsx', 'README', quantile.OUTPUT_SHEETS),
-        ('results_diagnostics_trajectories.xlsx', '00_README_STRUCTURE', diagnostics.OUTPUT_SHEETS),
-        ('Results_severe_P1_decline_analysis.xlsx', '00_README', None),
-    ]
-    for filename, readme, expected_sheets in files:
-        workbook = openpyxl.load_workbook(filename, read_only=True)
-        if expected_sheets:
-            assert workbook.sheetnames == expected_sheets
-        descriptions = [' | '.join(str(v) for v in row if v is not None) for row in workbook[readme].values]
-        for entry in shared.MANUAL_EXCLUSIONS['companies']:
-            lines = [text for text in descriptions if entry['company'] in text and entry['nip'] in text]
-            assert len(lines) == 1, (filename, entry)
-            assert any(status in lines[0] for status in ['Removed from analysis', 'Already absent from input', 'Disabled'])
-            assert entry['reason_code'] in lines[0], (filename, entry)
-            assert shared.MANUAL_EXCLUSION_REASONS[entry['reason_code']] in lines[0], (filename, entry)
-        for sheet in workbook:
-            assert sheet.max_row > 1, (filename, sheet.title)
-            assert not any(cell.data_type == 'e' for row in sheet for cell in row), (filename, sheet.title)
-        workbook.close()
-    print('PASS: 64 OLS and 48 converged quantile results; exact cross-workbook sample counts; no excluded firm in trajectory export; four complete README audits; expected tabs and no Excel error cells.')
+    from code_common_samples import current, ROOT
+    from code_check_common_samples import validate_context,validate_workbooks
+    context=current();validate_context(context);validate_workbooks(ROOT,context)
+    companies=pd.read_excel(ROOT/'results_data_quality_and_samples.xlsx',sheet_name='03_EXCLUDED_COMPANIES',header=3,dtype={'nip':str})
+    for entry in shared.MANUAL_EXCLUSIONS['companies']:
+        rows=companies.loc[companies.nip.eq(entry['nip'])]
+        present=context.source.nip.eq(entry['nip']).any()
+        assert len(rows)==int(present)
+        if present: assert entry['reason_code'] in rows.iloc[0].primary_exclusion_reason
+    print('PASS: manual firm reasons occur once in the central register; absent upstream firms remain absent; exact model alignment.')
 
 
 if __name__ == '__main__':

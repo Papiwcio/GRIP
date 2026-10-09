@@ -21,7 +21,7 @@ from code_config import build_sample_mask, period_dependent_metadata, apply_manu
 CONFIG = {
     "input_file": ols.CONFIG["input_file"],
     # Exact filename specified in the user's supplementary-analysis request.
-    "output_file": "Results_severe_P1_decline_analysis.xlsx",
+    "output_file": "results_severe_p1_decline_analysis.xlsx",
     "samples": ["Rank2019", "Rank2019_Manufacturing"],
     "thresholds": [15, 20, 25],
     "primary_threshold": 20,
@@ -127,6 +127,8 @@ class Prepared:
 def prepare_model(frame, sample, period, shared, models, levels, registry) -> Prepared:
     spec = models[period]
     estimation = ols.get_estimation_sample(frame, shared, spec)
+    from code_common_samples import verify
+    verify(frame,frame.loc[estimation.index,'nip'],f'SEVERE_{period}','severe_p1_decline',period)
     if estimation.empty:
         raise ValueError(f"Empty estimation sample: {sample}, {period}")
     x, raw, included, _ = ols.build_design_matrix(
@@ -305,6 +307,8 @@ def fit_logistic(prepared, frame, threshold, shared, config):
         "method": method, "LR_method": lr_method,
         "single_class_sectors": "; ".join(pure_sectors) or "None",
     }
+    from code_common_samples import verify
+    summary.update(verify(frame,frame.loc[prepared.estimation.index,'nip'],f'LOGIT_BOTTOMP1_{threshold}','severe_logit','P1'))
     return {"summary": summary, "coefficients": coefficient_table,
             "marginal_effects": marginal_effects(prepared, fitted, shared), "fit": fitted}
 
@@ -344,6 +348,8 @@ def fit_growth(prepared, frame, threshold, shared, profitability, interaction=Fa
         "outcome": period_dependent_metadata(shared["growth_mode"], prepared.period)["column"],
         "treatment": "winsor_std", "model": "Profitability interaction" if interaction else "Group indicator",
     }
+    from code_common_samples import verify
+    summary.update(verify(frame,frame.loc[prepared.estimation.index,'nip'],f'{prepared.period}_GROUP_{threshold}','severe_group',prepared.period))
     slopes = []
     if interaction:
         for group, variables in [
@@ -439,6 +445,9 @@ def readme(config, shared, status):
         ("Reproduce", "python3 code_severe_p1_decline.py; shared settings remain in code_config.py. Canonical datasets and other workbooks are not modified."),
         *manual_exclusion_readme_rows(config.get("manual_exclusion_audit", [])),
     ]
+    from code_common_samples import metadata_note
+    rows = [r for r in rows if not r[0].startswith('Manual exclusion')]
+    rows.append(('Common sample policy',metadata_note()))
     return pd.DataFrame(rows, columns=["item", "description"])
 
 
@@ -558,7 +567,8 @@ def run_analysis(config=None):
         data[f"BottomP1_{threshold}"] = bottom_indicator(data[p1_growth], threshold)
     frames, prepared, logits, growths, interactions, failures = {}, {}, {}, {}, {}, []
     for sample in config["samples"]:
-        frame = data.loc[build_sample_mask(data, sample, ols.trajectory_col(shared))].copy()
+        from code_common_samples import select
+        frame = select(data,sample)
         if frame[[f"BottomP1_{t}" for t in config["thresholds"]]].isna().any().any():
             raise ValueError("Complete-trajectory sample unexpectedly has missing P1 membership.")
         frames[sample] = frame

@@ -1,3 +1,7 @@
+# Stage 2 reporting update
+
+The existing verified company rules and reason codes remain unchanged. Five configured firms are present and excluded; Orlen is absent upstream. Names/reasons are now consolidated once in `results_data_quality_and_samples.xlsx`, rather than repeated across regression READMEs. Current common Ns are ALL 2,332; MANUFACTURING 949; RANK2019 1,748; RANK2019_MANUFACTURING 754. Numerical sample counts below from earlier runs are historical. The authoritative current workflow is [GRIP quantitative workflow](GRIP_quantitative_workflow.md).
+
 # Shared manual analytical exclusions
 
 Updated 6 October 2026 after the user restored the four historical company exclusions, added Globus and Ordipol, and requested explicit reason codes. All OLS, quantile, severe-P1 and diagnostic results have been rerun for the six-company policy.

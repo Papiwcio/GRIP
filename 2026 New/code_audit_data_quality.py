@@ -897,5 +897,10 @@ def main(argv=None):
     return findings, audit
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    import sys
+    if len(sys.argv) == 1:
+        from code_run_quantitative_pipeline import main as unified_main
+        unified_main(['--quality-only'])
+    else:
+        raise SystemExit('Superseded routine output. Use code_run_quantitative_pipeline.py --audit-only or --quality-only. Independent audit_frames/construct functions remain available.')
